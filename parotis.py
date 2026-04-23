@@ -998,7 +998,8 @@ class DB:
 class Game:
     def __init__(self):
         pygame.init()
-        pygame.mouse.set_visible(False)
+        self.mouse_mode = "--mouse" in sys.argv or "-m" in sys.argv
+        pygame.mouse.set_visible(self.mouse_mode)
 
         info=pygame.display.Info()
         self.W,self.H=info.current_w,info.current_h
@@ -1008,6 +1009,7 @@ class Game:
         except Exception:
             self.W,self.H=1280,720
             self.screen=pygame.display.set_mode((self.W,self.H))
+            self.mouse_mode=True
             pygame.mouse.set_visible(True)
 
         pygame.display.set_caption("Parotis")
