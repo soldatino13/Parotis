@@ -81,6 +81,74 @@ SKIN_TONES = [
 GLYPHS = ["◆", "○", "✦", "◇", "★", "△", "▽", "⬡"]
 
 
+# ─── Icon-Zeichner für Menü (kein Emoji nötig) ────────────────────────────────
+def draw_menu_icon(surf: pygame.Surface, cx: int, cy: int,
+                   action: str, size: int = 22, col=(255, 255, 255)):
+    s = size // 2
+    if action == "rain":
+        # Wolke
+        pygame.draw.ellipse(surf, col, (cx - s, cy - s // 2 - 4, s * 2, s))
+        pygame.draw.ellipse(surf, col, (cx - s + 4, cy - s // 2 - 8, s + 4, s))
+        # Regentropfen
+        for dx in (-s // 2, 0, s // 2):
+            pygame.draw.line(surf, col,
+                (cx + dx, cy + 2), (cx + dx - 2, cy + s), 2)
+    elif action == "feast":
+        # Apfel
+        pygame.draw.circle(surf, col, (cx, cy + 2), s - 1)
+        pygame.draw.line(surf, col, (cx, cy - s + 4), (cx + 3, cy - s - 2), 2)
+        leaf = [(cx + 2, cy - s - 1), (cx + 8, cy - s - 5), (cx + 6, cy - s + 2)]
+        pygame.draw.polygon(surf, col, leaf)
+    elif action == "peace":
+        # Friedens-Symbol (Kreis + Linien)
+        pygame.draw.circle(surf, col, (cx, cy), s, 2)
+        pygame.draw.line(surf, col, (cx, cy - s), (cx, cy + s), 2)
+        pygame.draw.line(surf, col, (cx, cy), (cx - s + 1, cy + s - 2), 2)
+        pygame.draw.line(surf, col, (cx, cy), (cx + s - 1, cy + s - 2), 2)
+    elif action == "newlife":
+        # Strichmännchen (Baby)
+        pygame.draw.circle(surf, col, (cx, cy - s + 2), s // 2 + 1, 2)
+        pygame.draw.line(surf, col, (cx, cy - s // 2 + 3), (cx, cy + s // 2), 2)
+        pygame.draw.line(surf, col, (cx - s // 2, cy), (cx + s // 2, cy), 2)
+        pygame.draw.line(surf, col, (cx, cy + s // 2), (cx - s // 2, cy + s), 2)
+        pygame.draw.line(surf, col, (cx, cy + s // 2), (cx + s // 2, cy + s), 2)
+    elif action == "chronicle":
+        # Buch
+        pygame.draw.rect(surf, col, (cx - s + 1, cy - s, s * 2 - 2, s * 2), border_radius=2)
+        pygame.draw.rect(surf, (40, 80, 40), (cx - s + 3, cy - s + 2, s * 2 - 6, s * 2 - 4))
+        for dy in (-3, 0, 3):
+            pygame.draw.line(surf, col,
+                (cx - s + 4, cy + dy), (cx + s - 4, cy + dy), 1)
+        pygame.draw.rect(surf, col, (cx - s + 1, cy - s, 3, s * 2))
+    elif action == "wakeall":
+        # Blitz
+        pts = [(cx + 2, cy - s), (cx - s // 2, cy + 1),
+               (cx, cy + 1), (cx - 2, cy + s),
+               (cx + s // 2, cy - 1), (cx, cy - 1)]
+        pygame.draw.polygon(surf, col, pts)
+    elif action == "quit":
+        # Power-Symbol
+        pygame.draw.circle(surf, col, (cx, cy), s, 2)
+        pygame.draw.line(surf, col, (cx, cy - s), (cx, cy - s // 3), 3)
+        # Lücke im Kreis oben
+        pygame.draw.line(surf, (20, 45, 20), (cx - 2, cy - s + 1), (cx + 2, cy - s + 1), 3)
+
+
+def draw_toggle_icon(surf: pygame.Surface, cx: int, cy: int,
+                     is_open: bool, size: int = 22):
+    s = size // 2
+    col = (255, 255, 255)
+    if not is_open:
+        # Hamburger (drei Linien)
+        for dy in (-s // 2, 0, s // 2):
+            pygame.draw.line(surf, col, (cx - s, cy + dy), (cx + s, cy + dy), 3)
+    else:
+        # X
+        pygame.draw.line(surf, col, (cx - s, cy - s), (cx + s, cy + s), 3)
+        pygame.draw.line(surf, col, (cx + s, cy - s), (cx - s, cy + s), 3)
+
+
+
 # ─── Iso-Hilfsfunktionen ──────────────────────────────────────────────────────
 def iso(gx: float, gy: float) -> Tuple[int, int]:
     sx = ISO_OX + int((gx - gy) * TILE_W // 2)
@@ -971,6 +1039,128 @@ class Food:
             pygame.draw.rect(surf, col, (rx - 1, ry - 2, 2, 4), border_radius=1)
 
 
+# ─── Dekorationen (Bäume, Felsen, Sträucher) ─────────────────────────────────
+class Deco:
+    def __init__(self, gx: float, gy: float, typ: str, seed: int):
+        self.gx, self.gy = gx, gy
+        self.typ  = typ
+        self.seed = seed
+
+    def depth_key(self): return self.gx + self.gy + 0.01
+
+    def draw(self, surf: pygame.Surface):
+        sx, sy = iso(self.gx, self.gy)
+        rng = random.Random(self.seed)
+        if   self.typ == "tree_big":   self._tree_big(surf, sx, sy, rng)
+        elif self.typ == "tree_small": self._tree_small(surf, sx, sy, rng)
+        elif self.typ == "rock":       self._rock(surf, sx, sy, rng)
+        elif self.typ == "shrub":      self._shrub(surf, sx, sy, rng)
+        elif self.typ == "stump":      self._stump(surf, sx, sy)
+
+    def _tree_big(self, surf, sx, sy, rng):
+        # Stamm (isometrischer Block)
+        tw = max(4, TILE_W // 8)
+        th = max(6, TILE_H * 2)
+        pygame.draw.rect(surf, (100, 65, 35), (sx - tw // 2, sy - th, tw, th))
+        pygame.draw.rect(surf, (80, 50, 25),  (sx - tw // 2, sy - th, 2, th))
+        pygame.draw.rect(surf, (120, 80, 45), (sx + tw // 2 - 2, sy - th, 2, th))
+        # Krone (3 überlagerte Ellipsen für Tiefe)
+        cr = TILE_W // 2 + rng.randint(-4, 4)
+        g1 = (35 + rng.randint(0, 20), 130 + rng.randint(0, 30), 35)
+        g2 = (50 + rng.randint(0, 15), 160 + rng.randint(0, 25), 50)
+        g3 = (70 + rng.randint(0, 10), 185 + rng.randint(0, 20), 70)
+        # Schatten unten
+        shadow = pygame.Surface((cr * 3, cr), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 35), (0, 0, cr * 3, cr))
+        surf.blit(shadow, (sx - cr + cr // 2, sy - th - cr // 2))
+        # Schichten
+        pygame.draw.ellipse(surf, g1, (sx - cr, sy - th - cr // 2, cr * 2, int(cr * 1.1)))
+        pygame.draw.ellipse(surf, g2, (sx - cr + 4, sy - th - cr, cr * 2 - 8, int(cr * 1.0)))
+        pygame.draw.ellipse(surf, g3, (sx - cr + 8, sy - th - cr - cr // 3, cr * 2 - 16, cr // 2 + 4))
+        # Pixel-Outline
+        pygame.draw.ellipse(surf, (20, 80, 20), (sx - cr, sy - th - cr // 2, cr * 2, int(cr * 1.1)), 2)
+        # Highlight
+        pygame.draw.ellipse(surf, (90, 200, 90),
+            (sx - cr + 6, sy - th - cr + 2, cr - 8, cr // 3), 0)
+
+    def _tree_small(self, surf, sx, sy, rng):
+        cr = TILE_W // 3 + rng.randint(-3, 3)
+        g1 = (40 + rng.randint(0, 15), 140 + rng.randint(0, 20), 40)
+        pygame.draw.rect(surf, (90, 58, 28), (sx - 2, sy - cr, 4, cr))
+        pygame.draw.ellipse(surf, g1, (sx - cr, sy - cr * 2, cr * 2, int(cr * 1.4)))
+        pygame.draw.ellipse(surf, (20, 90, 20), (sx - cr, sy - cr * 2, cr * 2, int(cr * 1.4)), 1)
+        pygame.draw.ellipse(surf, (70, 185, 70),
+            (sx - cr + 4, sy - cr * 2 + 2, cr - 4, cr // 3))
+
+    def _rock(self, surf, sx, sy, rng):
+        rw = TILE_W // 3 + rng.randint(-4, 4)
+        rh = max(6, rw // 2)
+        # Schatten
+        sh = pygame.Surface((rw * 2, rh), pygame.SRCALPHA)
+        pygame.draw.ellipse(sh, (0, 0, 0, 40), (0, 0, rw * 2, rh))
+        surf.blit(sh, (sx - rw, sy - rh // 2))
+        # Stein-Körper
+        col1 = (130 + rng.randint(0,20), 130 + rng.randint(0,15), 120 + rng.randint(0,15))
+        col2 = (155 + rng.randint(0,15), 155 + rng.randint(0,10), 145)
+        pygame.draw.ellipse(surf, col1, (sx - rw, sy - rh * 2, rw * 2, rh * 2))
+        # Highlight
+        pygame.draw.ellipse(surf, col2, (sx - rw + 3, sy - rh * 2 + 2, rw - 2, rh // 2))
+        pygame.draw.ellipse(surf, col1, (sx - rw, sy - rh * 2, rw * 2, rh * 2), 1)
+
+    def _shrub(self, surf, sx, sy, rng):
+        cr = max(6, TILE_W // 4 + rng.randint(-3, 3))
+        cols = [(50, 140, 50), (60, 160, 55), (45, 125, 45)]
+        for dx, dy, r in [(-cr // 2, 0, cr), (cr // 2, 0, cr - 2), (0, -cr // 3, cr - 3)]:
+            c = rng.choice(cols)
+            pygame.draw.circle(surf, c, (sx + dx, sy - r + dy), r)
+        pygame.draw.circle(surf, (30, 100, 30), (sx, sy - cr + 2), cr, 1)
+
+    def _stump(self, surf, sx, sy):
+        pygame.draw.rect(surf, (110, 72, 38), (sx - 5, sy - 10, 10, 10))
+        pygame.draw.ellipse(surf, (130, 88, 50), (sx - 7, sy - 12, 14, 7))
+        pygame.draw.ellipse(surf, (150, 105, 65), (sx - 5, sy - 13, 10, 5))
+        pygame.draw.circle(surf, (120, 80, 45), (sx, sy - 12), 2)
+
+
+def generate_decos(tilemap: List[List[int]]) -> List['Deco']:
+    rng  = random.Random(99)
+    decos = []
+    tree_pos  = set()
+    for gx in range(GRID_W):
+        for gy in range(GRID_H):
+            t = tilemap[gx][gy]
+            key = (gx, gy)
+            if t in (T_STONE, T_WATER):
+                continue
+            # Bäume auf Gras/Dunkel
+            if t == T_GRASS and rng.random() < 0.06:
+                # Kein Baum zu nah am Schrein (ca. 0.72*30, 0.38*20)
+                if abs(gx - GRID_W*0.72) + abs(gy - GRID_H*0.38) > 3:
+                    if key not in tree_pos:
+                        typ = "tree_big" if rng.random() < 0.4 else "tree_small"
+                        decos.append(Deco(gx + rng.uniform(0.1,0.9),
+                                          gy + rng.uniform(0.1,0.9),
+                                          typ, gx*100+gy))
+                        tree_pos.add(key)
+            elif t == T_DARK and rng.random() < 0.08:
+                if key not in tree_pos:
+                    decos.append(Deco(gx + rng.uniform(0.1,0.9),
+                                      gy + rng.uniform(0.1,0.9),
+                                      "tree_small", gx*100+gy+1))
+                    tree_pos.add(key)
+            # Felsen auf Sand
+            elif t == T_SAND and rng.random() < 0.12:
+                decos.append(Deco(gx + rng.uniform(0.2,0.8),
+                                  gy + rng.uniform(0.2,0.8),
+                                  "rock", gx*100+gy+2))
+            # Sträucher
+            if t == T_GRASS and rng.random() < 0.04 and key not in tree_pos:
+                decos.append(Deco(gx + rng.uniform(0.1,0.9),
+                                  gy + rng.uniform(0.1,0.9),
+                                  "shrub", gx*100+gy+3))
+    return decos
+
+
 # ─── Schrein ──────────────────────────────────────────────────────────────────
 class Shrine:
     def __init__(self, gx: float, gy: float, image_path: Optional[str]):
@@ -1175,13 +1365,13 @@ class Mailbox:
 # ─── Touch-Menü ───────────────────────────────────────────────────────────────
 class TouchMenu:
     ITEMS = [
-        ("🌧", "Regen",        "rain"),
-        ("🍎", "Grosses Fest", "feast"),
-        ("☮",  "Frieden",      "peace"),
-        ("👶", "Neues Leben",  "newlife"),
-        ("📜", "Chronik",      "chronicle"),
-        ("⚡", "Alle wecken",  "wakeall"),
-        ("🔌", "Ausschalten",  "quit"),
+        ("rain",      "Regen"),
+        ("feast",     "Grosses Fest"),
+        ("peace",     "Frieden"),
+        ("newlife",   "Neues Leben"),
+        ("chronicle", "Chronik"),
+        ("wakeall",   "Alle wecken"),
+        ("quit",      "Ausschalten"),
     ]
 
     def __init__(self, W: int, H: int):
@@ -1228,7 +1418,7 @@ class TouchMenu:
             return None
         for i, r in enumerate(self._rects):
             if r.collidepoint(x, y):
-                return self.ITEMS[i][2]
+                return self.ITEMS[i][0]
         return None
 
     def draw(self, surf: pygame.Surface,
@@ -1246,8 +1436,7 @@ class TouchMenu:
         surf.blit(gs, (tx - r, ty - r))
         pygame.draw.circle(surf, col, (tx, ty), r)
         pygame.draw.circle(surf, brd, (tx, ty), r, 2)
-        il = font_l.render("☰" if not self.open else "✕", True, C_WHITE)
-        surf.blit(il, (tx - il.get_width() // 2, ty - il.get_height() // 2))
+        draw_toggle_icon(surf, tx, ty, self.open, size=24)
 
         if self.anim <= 0.01:
             return
@@ -1265,7 +1454,7 @@ class TouchMenu:
                 (0, 0, pw, ph), 1, border_radius=10)
             surf.blit(ps, (px - 8, py - 8))
 
-        for i, (emoji, label, _) in enumerate(self.ITEMS):
+        for i, (action, label) in enumerate(self.ITEMS):
             if i >= len(self._rects):
                 break
             rect  = self._rects[i]
@@ -1276,39 +1465,48 @@ class TouchMenu:
             alpha = int(255 * prog)
             oy    = int((1 - prog) * 20)
 
+            # Button-Hintergrund
             bg = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
-            bg.fill((18, 42, 18, int(225 * prog)))
-            pygame.draw.rect(bg,
-                (55 + int(45 * prog), 130, 55 + int(45 * prog), alpha),
+            bg_col = (130, 30, 30) if action == "quit" else (18, 42, 18)
+            bg.fill((*bg_col, int(225 * prog)))
+            brd_col = (200, 60, 60) if action == "quit" else (55 + int(45*prog), 130, 55 + int(45*prog))
+            pygame.draw.rect(bg, (*brd_col, alpha),
                 (0, 0, rect.w, rect.h), 2, border_radius=10)
             surf.blit(bg, (rect.x, rect.y + oy))
 
-            el = font_l.render(emoji, True, C_WHITE)
-            el.set_alpha(alpha)
-            ll = font_s.render(label,  True, C_HUD)
+            # Icon (gezeichnet)
+            icon_surf = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+            draw_menu_icon(icon_surf, rect.w // 2, rect.h // 2 - 6,
+                           action, size=30)
+            icon_surf.set_alpha(alpha)
+            surf.blit(icon_surf, (rect.x, rect.y + oy))
+
+            # Label
+            ll = font_s.render(label, True, C_HUD)
             ll.set_alpha(alpha)
-            surf.blit(el, (rect.x + rect.w // 2 - el.get_width() // 2,
-                           rect.y + oy + 8))
             surf.blit(ll, (rect.x + rect.w // 2 - ll.get_width() // 2,
                            rect.y + oy + rect.h - 18))
 
         if self.confirm_quit:
-            cw, ch = 320, 100
+            cw, ch = 320, 110
             cx, cy = self.W // 2 - cw // 2, self.H // 2 - ch // 2
             cs = pygame.Surface((cw, ch), pygame.SRCALPHA)
             cs.fill((0, 0, 0, 215))
             pygame.draw.rect(cs, (195, 55, 55, 200),
                 (0, 0, cw, ch), 2, border_radius=10)
             surf.blit(cs, (cx, cy))
-            tl = font_s.render("Welt wirklich beenden?", True, (255, 100, 100))
+            tl = font_s.render("Welt wirklich beenden?", True, (255, 120, 120))
             surf.blit(tl, (cx + cw // 2 - tl.get_width() // 2, cy + 14))
-            for lbl, col2, rx in [
-                    ("JA ✓",   (195, 55, 55), cx + 50),
-                    ("NEIN ✕", (55, 155, 55), cx + 180)]:
-                pygame.draw.rect(surf, col2,
-                    (rx - 30, cy + 52, 90, 34), border_radius=8)
-                tl2 = font_s.render(lbl, True, C_WHITE)
-                surf.blit(tl2, (rx - tl2.get_width() // 2, cy + 62))
+            # JA-Button
+            pygame.draw.rect(surf, (180, 45, 45), (cx + 20, cy + 52, 110, 38), border_radius=8)
+            ja = font_s.render("JA", True, C_WHITE)
+            surf.blit(ja, (cx + 75 - ja.get_width() // 2, cy + 64))
+            draw_menu_icon(surf, cx + 40, cy + 72, "quit", size=18)
+            # NEIN-Button
+            pygame.draw.rect(surf, (45, 145, 55), (cx + 150, cy + 52, 140, 38), border_radius=8)
+            nein = font_s.render("NEIN", True, C_WHITE)
+            surf.blit(nein, (cx + 220 - nein.get_width() // 2, cy + 64))
+            draw_menu_icon(surf, cx + 170, cy + 72, "peace", size=18)
 
     def confirm_rects(self) -> Tuple[pygame.Rect, pygame.Rect]:
         cw, ch = 320, 100
@@ -1331,9 +1529,11 @@ class World:
         self.total_born = 0
         self.total_died = 0
         self.chronicle : List[str]               = []
+        self.decos     : List[Deco]              = []
 
     def setup_shrine(self):
         self.shrine = Shrine(GRID_W * 0.72, GRID_H * 0.38, GOD_IMAGE_PATH)
+        self.decos  = generate_decos(self.tilemap)
 
     def setup_mailbox(self, screen_w: int, screen_h: int):
         self.mailbox = Mailbox(
@@ -1412,6 +1612,8 @@ class World:
             drawables.append((f.depth_key(), "food", f))
         for p in self.parotis:
             drawables.append((p.depth_key(), "paroti", p))
+        for d in self.decos:
+            drawables.append((d.depth_key(), "deco", d))
         if self.shrine:
             drawables.append((self.shrine.depth_key(), "shrine", self.shrine))
         if self.mailbox:
@@ -1420,6 +1622,7 @@ class World:
         for _, typ, obj in drawables:
             if   typ == "food":    obj.draw(surf)
             elif typ == "paroti":  obj.draw(surf, font_g, font_s)
+            elif typ == "deco":    obj.draw(surf)
             elif typ == "shrine":  obj.draw(surf, font_s)
             elif typ == "mailbox": obj.draw(surf, font_s, font_m)
         self._draw_hud(surf, font_s, font_m)
