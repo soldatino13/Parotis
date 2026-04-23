@@ -41,28 +41,33 @@ Persönlichkeit und Nachkommen bestimmt. Du bist der Gott dieser kleinen Welt.
 
 ## Schnellstart
 
-Wenn Python und pygame bereits installiert sind:
+Drei Befehle — direkt auf dem Pi im Terminal eingeben:
 
 ```bash
+git clone https://github.com/soldatino13/Parotis.git ~/parotis
 cd ~/parotis
-python3 parotis.py
+chmod +x install.sh && ./install.sh
 ```
+
+Danach: Doppelklick auf das **Parotis-Icon** auf dem Desktop. Fertig.
 
 ---
 
 ## Vollständige Installation
 
-### 1. Dateien auf den Pi kopieren
+### 1. Repository klonen
 
-Per USB-Stick, `scp` oder direkt herunterladen:
+Auf dem Pi ein Terminal öffnen und eingeben:
 
 ```bash
-# Per scp vom PC (IP anpassen):
-scp -r parotis_v2/ pi@192.168.1.XXX:~/parotis
+git clone https://github.com/soldatino13/Parotis.git ~/parotis
+```
 
-# Oder direkt auf dem Pi entpacken
-mkdir ~/parotis && cd ~/parotis
-# Dateien hier ablegen: parotis.py, install.sh, Parotis.desktop
+Falls `git` nicht installiert ist:
+
+```bash
+sudo apt-get install -y git
+git clone https://github.com/soldatino13/Parotis.git ~/parotis
 ```
 
 ### 2. Installations-Skript ausführen
@@ -87,6 +92,9 @@ Das Skript erledigt automatisch:
 Falls du lieber alles von Hand machst:
 
 ```bash
+# Repository klonen
+git clone https://github.com/soldatino13/Parotis.git ~/parotis
+
 # Abhängigkeiten
 sudo apt-get update
 sudo apt-get install -y python3-pygame unclutter x11-xserver-utils
@@ -100,6 +108,15 @@ mkdir -p ~/parotis-inbox/gelesen
 # Starten
 cd ~/parotis
 python3 parotis.py
+```
+
+### Updates einspielen
+
+Wenn eine neue Version auf GitHub verfügbar ist:
+
+```bash
+cd ~/parotis
+git pull
 ```
 
 ---
