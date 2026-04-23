@@ -1,11 +1,14 @@
-# 🌍 PAROTIS v2 — Die lebende Welt
+# 🌍 PAROTIS v3 — Die isometrische Welt
 
 > *"Was hast du erschaffen?"*
 > Inspiriert von Black Mirror S07E04 – Plaything (2025)
 
-Eine Lebenssimulation für Raspberry Pi mit Touchscreen.  
+Eine isometrische Lebenssimulation im **Habbo-Hotel-Stil** für Raspberry Pi mit Touchscreen.  
 Jedes Wesen — ein **Paroti** — hat ein einzigartiges Genom, das Aussehen, Verhalten,  
 Persönlichkeit und Nachkommen bestimmt. Du bist der Gott dieser kleinen Welt.
+
+Die Welt wird **isometrisch (2.5D)** dargestellt: Diamant-Kachelboden, Habbo-style
+Figuren mit Shirt, Hose, Kopf, Haaren und genbasierten Accessoires (Brille, Heiligenschein).
 
 ---
 
@@ -262,11 +265,16 @@ Jeder Paroti hat **15 Gene** die alles bestimmen:
 ### Visuelle Gene
 | Gen | Effekt |
 |---|---|
-| `col_r / col_g / col_b` | Körperfarbe (RGB-Anteil 0–1) |
-| `body_type` | Körperform: Blob / Oval / Breit / Raute / Hexagon |
-| `size` | Physische Grösse (10–32 Pixel) |
-| `eye_size` | Augengrösse |
-| `limbs` | 2 oder 4 Gliedmassen |
+| `col_r / col_g / col_b` | Shirt-Farbe (RGB-Anteil 0–1) |
+| `skin_tone` | Hautton (5 Varianten von hell bis dunkel) |
+| `hair_dark` | Haarfarbe (hell bis dunkel) |
+| `size` | Körpergrösse (26–40 Pixel) |
+
+Sichtbare Accessoires je nach Gen-Wert:
+- `intellect > 0.72` → Brille
+- `piety > 0.72` → Heiligenschein
+- Historiker → Stab
+- Postfach-Läufer → Briefsymbol über dem Kopf
 
 ### Verhaltens-Gene
 | Gen | Effekt |
@@ -425,7 +433,7 @@ sudo apt-get install unclutter
 - [x] SQLite-Persistenz (überlebt Neustarts)
 - [x] Weltchronik
 
-### 🔜 v3 – Sprache & Territorium
+### 🔜 v4 – Sprache & Territorium
 - [ ] Emergente Sprache: konsistente Symbole für "Hunger", "Gefahr", "Liebe"
 - [ ] Territorien: Linien markieren Bereiche
 - [ ] Kollektives Gedächtnis: Misstrauen/Vertrauen wird vererbt
