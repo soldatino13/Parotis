@@ -39,7 +39,7 @@ except ImportError:
 # ─── Konfiguration ────────────────────────────────────────────────────────────
 ASSETS_DIR = Path(__file__).parent / "assets"
 SIZE       = "1024x1024"   # gpt-image-1 unterstützt 1024x1024
-MODEL      = "gpt-image-1"
+MODEL      = "gpt-image-1.5"
 
 # Basis-Stil für alle Sprites
 STYLE_BASE = (
@@ -262,7 +262,6 @@ def generate_all(skip_existing=False, only=None, output_dir=None):
                 prompt=full_prompt,
                 n=1,
                 size=SIZE,
-                response_format="b64_json",
             )
             img_bytes = base64.b64decode(resp.data[0].b64_json)
 
