@@ -32,6 +32,29 @@ for _ext in ("jpg", "jpeg", "png", "bmp", "webp"):
         GOD_IMAGE_PATH = str(_p)
         break
 
+# ─── Sprite-Loader ────────────────────────────────────────────────────────────
+ASSETS_DIR    = Path(__file__).parent / "assets"
+_sprite_cache : dict = {}
+
+def load_sprite(key: str, size: Optional[Tuple[int,int]] = None) -> Optional[pygame.Surface]:
+    """Lädt Sprite aus assets/ falls vorhanden, sonst None (→ prozedural)."""
+    if key in _sprite_cache:
+        return _sprite_cache[key]
+    path = ASSETS_DIR / f"{key}.png"
+    if not path.exists():
+        _sprite_cache[key] = None
+        return None
+    try:
+        img = pygame.image.load(str(path)).convert_alpha()
+        if size:
+            img = pygame.transform.scale(img, size)
+        _sprite_cache[key] = img
+        return img
+    except Exception:
+        _sprite_cache[key] = None
+        return None
+
+
 # ─── Konstanten ───────────────────────────────────────────────────────────────
 GRID_W   = 30
 GRID_H   = 20
@@ -867,6 +890,12 @@ class Food:
         pygame.draw.ellipse(gs, (*gc, 35), (0, gw, gw * 3, gw))
         surf.blit(gs, (sx - gw - gw // 2, sy - gw // 2))
 
+        # Sprite-Fallback
+        spr = load_sprite(f"food/{self.typ}", (s * 4, s * 4))
+        if spr:
+            surf.blit(spr, (sx - s * 2, sy - s * 4))
+            return
+
         if   self.typ == "pizza":      self._pizza(surf, sx, sy, s)
         elif self.typ == "kebab":      self._kebab(surf, sx, sy, s)
         elif self.typ == "burger":     self._burger(surf, sx, sy, s)
@@ -1051,6 +1080,12 @@ class Deco:
     def draw(self, surf: pygame.Surface):
         sx, sy = iso(self.gx, self.gy)
         rng = random.Random(self.seed)
+        sizes = {"tree_big": (80,112), "tree_small": (56,72),
+                 "shrub": (56,72), "rock": (48,40), "stump": (48,40)}
+        spr = load_sprite(f"deco/{self.typ}", sizes.get(self.typ))
+        if spr:
+            surf.blit(spr, (sx - spr.get_width() // 2, sy - spr.get_height()))
+            return
         if   self.typ == "tree_big":   self._tree_big(surf, sx, sy, rng)
         elif self.typ == "tree_small": self._tree_small(surf, sx, sy, rng)
         elif self.typ == "rock":       self._rock(surf, sx, sy, rng)
