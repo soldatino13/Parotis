@@ -39,8 +39,8 @@ FPS      = 60
 SAVE_EVERY = 30
 MAX_POP  = 80
 INIT_POP = 18
-MAX_FOOD = 60
-FOOD_RATE = 0.018
+MAX_FOOD = 90
+FOOD_RATE = 0.032
 LIFESPAN = 60 * 60 * 7
 
 # Iso-Parameter (nach Screen-Init gesetzt)
@@ -96,53 +96,163 @@ def screen_to_grid(sx: int, sy: int) -> Tuple[float, float]:
 
 # ─── Tilemap ──────────────────────────────────────────────────────────────────
 def make_tilemap() -> List[List[int]]:
-    tm = [[T_GRASS] * GRID_H for _ in range(GRID_W)]
-    for _ in range(14):
-        cx = random.randint(2, GRID_W - 3)
-        cy = random.randint(2, GRID_H - 3)
-        for dx in range(-2, 3):
-            for dy in range(-2, 3):
-                if random.random() < 0.55:
+    rng = random.Random(42)   # Seed für reproducible Map
+    tm  = [[T_GRASS] * GRID_H for _ in range(GRID_W)]
+
+    # Dunkle Gras-Flecken
+    for _ in range(18):
+        cx = rng.randint(2, GRID_W - 3)
+        cy = rng.randint(2, GRID_H - 3)
+        for dx in range(-3, 4):
+            for dy in range(-3, 4):
+                if rng.random() < 0.45 - abs(dx) * 0.05 - abs(dy) * 0.05:
                     nx, ny = cx + dx, cy + dy
                     if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
                         tm[nx][ny] = T_DARK
-    # Steinpfad diagonal
-    for i in range(GRID_W // 3, GRID_W * 2 // 3):
-        gy = GRID_H // 2 + random.randint(-1, 1)
-        if 0 <= gy < GRID_H:
-            tm[i][gy] = T_STONE
-    for _ in range(7):
-        cx = random.randint(1, GRID_W - 2)
-        cy = random.randint(1, GRID_H - 2)
-        for dx in range(-1, 2):
+
+    # Zwei Steinpfade
+    for start_y in [GRID_H // 3, GRID_H * 2 // 3]:
+        y = start_y
+        for x in range(0, GRID_W):
+            y = max(1, min(GRID_H - 2, y + rng.randint(-1, 1)))
             for dy in range(-1, 2):
-                if random.random() < 0.45:
+                ny = y + dy
+                if 0 <= ny < GRID_H:
+                    tm[x][ny] = T_STONE
+            # Rand dunkler
+            for dy in (-2, 2):
+                ny = y + dy
+                if 0 <= ny < GRID_H and tm[x][ny] != T_STONE:
+                    tm[x][ny] = T_DARK
+
+    # Sand-Oasen
+    for _ in range(10):
+        cx = rng.randint(2, GRID_W - 3)
+        cy = rng.randint(2, GRID_H - 3)
+        r  = rng.randint(1, 3)
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                if dx * dx + dy * dy <= r * r:
                     nx, ny = cx + dx, cy + dy
                     if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
                         tm[nx][ny] = T_SAND
+
+    # Wasser-Teiche (innen)
+    for _ in range(3):
+        cx = rng.randint(4, GRID_W - 5)
+        cy = rng.randint(4, GRID_H - 5)
+        for dx in range(-2, 3):
+            for dy in range(-1, 2):
+                if rng.random() < 0.7:
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
+                        tm[nx][ny] = T_WATER
+
     return tm
 
 
+def _draw_tile_details(s, sx, sy, tw, th, tile_type, rng_seed):
+    """Pixel-Art Details auf der Kachel-Oberfläche."""
+    rng = random.Random(rng_seed)
+    tc = TILE_COLORS[tile_type][0]
+
+    if tile_type == T_GRASS:
+        # Kleine Gras-Halme und Punkte
+        for _ in range(3):
+            gx2 = sx + rng.randint(-tw // 4, tw // 4)
+            gy2 = sy + rng.randint(-th // 4, th // 4)
+            pygame.draw.line(s, (45, 105, 45), (gx2, gy2), (gx2 + rng.randint(-2,2), gy2 - 3), 1)
+        # Blümchen
+        if rng.random() < 0.12:
+            fx = sx + rng.randint(-tw // 5, tw // 5)
+            fy = sy + rng.randint(-th // 5, th // 5)
+            fcol = rng.choice([(255,220,80),(255,160,200),(180,220,255),(255,160,80)])
+            pygame.draw.circle(s, fcol, (fx, fy), 2)
+            pygame.draw.circle(s, (255,255,255), (fx, fy), 1)
+
+    elif tile_type == T_DARK:
+        # Moos-Muster
+        for _ in range(2):
+            mx = sx + rng.randint(-tw // 5, tw // 5)
+            my = sy + rng.randint(-th // 5, th // 5)
+            pygame.draw.circle(s, (25, 65, 25), (mx, my), rng.randint(1,2))
+
+    elif tile_type == T_STONE:
+        # Pflastersteine-Linien
+        pygame.draw.line(s, (110, 110, 100), (sx - 4, sy - 1), (sx + 4, sy - 1), 1)
+        pygame.draw.line(s, (110, 110, 100), (sx, sy - 4),     (sx, sy + 2),     1)
+        # Moos in Ritzen
+        if rng.random() < 0.25:
+            pygame.draw.circle(s, (70, 110, 60), (sx + rng.randint(-3,3), sy), 1)
+
+    elif tile_type == T_WATER:
+        # Wellen-Linien
+        for i in range(2):
+            wx = sx + rng.randint(-tw // 4, tw // 4)
+            wy = sy + rng.randint(-th // 5, th // 5)
+            pygame.draw.line(s, (65, 110, 190), (wx - 3, wy), (wx + 3, wy), 1)
+        # Glanz
+        if rng.random() < 0.2:
+            pygame.draw.circle(s, (120, 180, 255), (sx + rng.randint(-4,4), sy + rng.randint(-3,3)), 1)
+
+    elif tile_type == T_SAND:
+        # Sand-Körner
+        for _ in range(4):
+            pygame.draw.circle(s, (210, 195, 130),
+                (sx + rng.randint(-tw//4, tw//4), sy + rng.randint(-th//5, th//5)), 1)
+        # Kleine Steine
+        if rng.random() < 0.15:
+            pygame.draw.circle(s, (180, 170, 140),
+                (sx + rng.randint(-5,5), sy + rng.randint(-3,3)), 2)
+
+
 def render_floor(screen_w: int, screen_h: int, tilemap: List[List[int]]) -> pygame.Surface:
-    s = pygame.Surface((screen_w, screen_h))
+    s   = pygame.Surface((screen_w, screen_h))
     s.fill(C_BG)
     tw, th = TILE_W, TILE_H
-    # Wasser-Rand (1 Tile aussen)
+    wall_h = th // 4
+
+    # Alle Tiles von hinten nach vorne (Tiefensortierung)
+    tiles = []
     for gx in range(-1, GRID_W + 1):
         for gy in range(-1, GRID_H + 1):
-            t = T_WATER if (gx < 0 or gx >= GRID_W or gy < 0 or gy >= GRID_H) else tilemap[gx][gy]
-            sx, sy = iso(gx, gy)
-            tc, lc, rc = TILE_COLORS[t]
-            top_pts = [(sx, sy - th // 2), (sx + tw // 2, sy),
-                       (sx, sy + th // 2), (sx - tw // 2, sy)]
-            pygame.draw.polygon(s, tc, top_pts)
-            pygame.draw.polygon(s, lc, [
-                (sx - tw // 2, sy), (sx, sy + th // 2),
-                (sx, sy + th // 2 + th // 4), (sx - tw // 2, sy + th // 4)])
-            pygame.draw.polygon(s, rc, [
-                (sx, sy + th // 2), (sx + tw // 2, sy),
-                (sx + tw // 2, sy + th // 4), (sx, sy + th // 2 + th // 4)])
-            pygame.draw.polygon(s, (0, 0, 0), top_pts, 1)
+            tiles.append((gx + gy, gx, gy))
+    tiles.sort(key=lambda x: x[0])
+
+    for _, gx, gy in tiles:
+        t = (T_WATER if (gx < 0 or gx >= GRID_W or gy < 0 or gy >= GRID_H)
+             else tilemap[gx][gy])
+        sx, sy = iso(gx, gy)
+        tc, lc, rc = TILE_COLORS[t]
+
+        # Top-Fläche (Diamant)
+        top_pts = [(sx, sy - th // 2), (sx + tw // 2, sy),
+                   (sx, sy + th // 2), (sx - tw // 2, sy)]
+        pygame.draw.polygon(s, tc, top_pts)
+
+        # Links-Wand (sichtbar)
+        lft_pts = [(sx - tw // 2, sy), (sx, sy + th // 2),
+                   (sx, sy + th // 2 + wall_h), (sx - tw // 2, sy + wall_h)]
+        pygame.draw.polygon(s, lc, lft_pts)
+
+        # Rechts-Wand (sichtbar)
+        rgt_pts = [(sx, sy + th // 2), (sx + tw // 2, sy),
+                   (sx + tw // 2, sy + wall_h), (sx, sy + th // 2 + wall_h)]
+        pygame.draw.polygon(s, rc, rgt_pts)
+
+        # Kanten-Linien für Pixeligkeit
+        pygame.draw.polygon(s, (0, 0, 0), top_pts, 1)
+        pygame.draw.line(s, (0, 0, 0), (sx - tw//2, sy), (sx - tw//2, sy + wall_h), 1)
+        pygame.draw.line(s, (0, 0, 0), (sx + tw//2, sy), (sx + tw//2, sy + wall_h), 1)
+        pygame.draw.line(s, (0, 0, 0),
+            (sx - tw//2, sy + wall_h), (sx, sy + th//2 + wall_h), 1)
+        pygame.draw.line(s, (0, 0, 0),
+            (sx + tw//2, sy + wall_h), (sx, sy + th//2 + wall_h), 1)
+
+        # Pixel-Details auf der Oberfläche
+        if 0 <= gx < GRID_W and 0 <= gy < GRID_H:
+            _draw_tile_details(s, sx, sy - th // 4, tw, th, t, gx * 1000 + gy)
+
     return s
 
 
@@ -195,7 +305,7 @@ class Genome:
         return 0.025 + self.speed * 0.07
 
     def hunger_rate(self):
-        return 0.0008 + self.hunger_r * 0.0025
+        return 0.00004 + self.hunger_r * 0.00018
 
     def char_h(self):
         return int(26 + self.size * 14)
@@ -266,7 +376,7 @@ class Paroti:
         self.g   = genome or Genome.rand()
         self.gen = generation
 
-        self.hunger   = random.uniform(0.2, 0.45)
+        self.hunger   = random.uniform(0.08, 0.28)
         self.energy   = random.uniform(0.6, 1.0)
         self.happy    = random.uniform(0.4, 0.8)
         self.trust    = 0.3 + random.random() * 0.2
@@ -383,7 +493,7 @@ class Paroti:
                 self._toward(f.gx, f.gy)
                 if self._dist(f.gx, f.gy) < self._sz + 0.5:
                     world.eat_food(f)
-                    self.hunger = max(0.0, self.hunger - 0.42)
+                    self.hunger = max(0.0, self.hunger - 0.65)
                     self.happy  = min(1.0, self.happy + 0.12)
                     self.state  = S.WANDER
             else:
@@ -644,64 +754,221 @@ class Paroti:
         }.get(self.state, self.state)
 
 
-# ─── Futter (Iso Pflanzen) ────────────────────────────────────────────────────
+# ─── Futter – Pixel-Art Essen ────────────────────────────────────────────────
+FOOD_TYPES = [
+    "pizza", "kebab", "burger", "cake",
+    "apple", "broccoli", "sushi", "taco",
+    "watermelon", "donut",
+]
+
+FOOD_GLOW = {
+    "pizza":      (240, 180, 40),
+    "kebab":      (200, 120, 60),
+    "burger":     (210, 150, 60),
+    "cake":       (255, 150, 200),
+    "apple":      (220, 50,  50),
+    "broccoli":   (60,  200, 60),
+    "sushi":      (255, 200, 180),
+    "taco":       (240, 200, 80),
+    "watermelon": (50,  200, 80),
+    "donut":      (220, 140, 180),
+}
+
+
 class Food:
     def __init__(self, gx: float, gy: float):
         self.gx, self.gy = gx, gy
-        self.typ = random.choice(["mushroom", "berry", "crystal"])
-        self.sz  = random.uniform(0.7, 1.1)
+        self.typ = random.choice(FOOD_TYPES)
+        self.sz  = random.uniform(0.75, 1.15)
         self.age = 0
-        self.col = {"mushroom": (210, 75, 55),
-                    "berry":    (175, 55, 195),
-                    "crystal":  (55, 195, 215)}[self.typ]
 
-    def update(self):
-        self.age += 1
-
-    def depth_key(self):
-        return self.gx + self.gy
+    def update(self): self.age += 1
+    def depth_key(self): return self.gx + self.gy
 
     def draw(self, surf: pygame.Surface):
         sx, sy = iso(self.gx, self.gy)
-        t = self.age
-        pulse = math.sin(t * 0.08) * 1.5
-        s = int((9 + self.sz * 6) + pulse)
-        c = self.col
-        cl = (min(255, c[0] + 50), min(255, c[1] + 50), min(255, c[2] + 50))
+        t      = self.age
+        bob    = int(math.sin(t * 0.09) * 1.8)
+        sy    -= bob
+        s      = max(6, int(11 * self.sz))
+        gc     = FOOD_GLOW.get(self.typ, (200, 200, 100))
 
-        if self.typ == "mushroom":
-            pygame.draw.rect(surf, (190, 170, 140), (sx - 2, sy - s, 4, s // 2))
-            pygame.draw.ellipse(surf, c,  (sx - s, sy - s, s * 2, s))
-            pygame.draw.ellipse(surf, cl, (sx - s + 3, sy - s + 3, s * 2 - 6, s - 6))
-            for i in range(3):
-                px = sx - s // 2 + i * (s // 2)
-                pygame.draw.circle(surf, (255, 255, 255), (px, sy - s + s // 3), 2)
-
-        elif self.typ == "berry":
-            pygame.draw.line(surf, (55, 115, 38), (sx, sy), (sx - 3, sy - s), 2)
-            for i in range(4):
-                bx = sx + int(math.cos(i * math.pi / 2 + t * 0.02) * 4)
-                by = sy - s + int(math.sin(i * math.pi / 2 + t * 0.02) * 4)
-                pygame.draw.circle(surf, c, (bx, by), s // 3)
-                pygame.draw.circle(surf, cl, (bx - 1, by - 1), max(1, s // 6))
-
-        else:  # crystal
-            pts = [
-                (sx,        sy - s * 2),
-                (sx + s,    sy - s),
-                (sx + s // 2, sy),
-                (sx - s // 2, sy),
-                (sx - s,    sy - s),
-            ]
-            pygame.draw.polygon(surf, c, pts)
-            pygame.draw.polygon(surf, cl, pts, 2)
-            pygame.draw.line(surf, (255, 255, 255),
-                (sx, sy - s * 2), (sx + s // 3, sy - s), 1)
-
-        gw = s + 5
+        # Glow unter dem Essen
+        gw = s + 7
         gs = pygame.Surface((gw * 3, gw * 3), pygame.SRCALPHA)
-        pygame.draw.circle(gs, (*c, 22), (gw, gw + s // 2), gw)
-        surf.blit(gs, (sx - gw, sy - s - gw + s // 2))
+        pygame.draw.ellipse(gs, (*gc, 35), (0, gw, gw * 3, gw))
+        surf.blit(gs, (sx - gw - gw // 2, sy - gw // 2))
+
+        if   self.typ == "pizza":      self._pizza(surf, sx, sy, s)
+        elif self.typ == "kebab":      self._kebab(surf, sx, sy, s)
+        elif self.typ == "burger":     self._burger(surf, sx, sy, s)
+        elif self.typ == "cake":       self._cake(surf, sx, sy, s)
+        elif self.typ == "apple":      self._apple(surf, sx, sy, s)
+        elif self.typ == "broccoli":   self._broccoli(surf, sx, sy, s)
+        elif self.typ == "sushi":      self._sushi(surf, sx, sy, s)
+        elif self.typ == "taco":       self._taco(surf, sx, sy, s)
+        elif self.typ == "watermelon": self._watermelon(surf, sx, sy, s)
+        elif self.typ == "donut":      self._donut(surf, sx, sy, s)
+
+    # ── Essen-Zeichnungen ────────────────────────────────────────────────────
+    def _pizza(self, surf, sx, sy, s):
+        # Dreieck-Slice
+        pts = [(sx, sy - s * 2), (sx - s, sy), (sx + s, sy)]
+        pygame.draw.polygon(surf, (210, 160, 80), pts)   # Teig
+        inner = [(sx, sy - s * 2 + 3), (sx - s + 4, sy - 3), (sx + s - 4, sy - 3)]
+        pygame.draw.polygon(surf, (200, 60, 40), inner)  # Sauce
+        # Käse-Punkte
+        for dx, dy in [(-2, -4), (2, -7), (0, -10), (-3, -11)]:
+            pygame.draw.circle(surf, (240, 220, 60), (sx + dx, sy + dy), 2)
+        # Pepperoni
+        pygame.draw.circle(surf, (160, 40, 40), (sx - 1, sy - 6), 2)
+        pygame.draw.circle(surf, (160, 40, 40), (sx + 2, sy - 12), 2)
+        # Kruste
+        pygame.draw.polygon(surf, (180, 130, 60), pts, 2)
+
+    def _kebab(self, surf, sx, sy, s):
+        # Spiess
+        pygame.draw.line(surf, (180, 150, 80), (sx, sy), (sx, sy - s * 2 - 4), 2)
+        # Fleisch & Gemüse abwechselnd
+        chunks = [
+            ((180, 100, 60), 3),   # Fleisch
+            ((80, 180, 80),  2),   # Grün
+            ((180, 100, 60), 3),
+            ((220, 80, 60),  2),   # Rot (Tomate)
+            ((180, 100, 60), 3),
+        ]
+        cy = sy - 3
+        for col, h in chunks:
+            pygame.draw.ellipse(surf, col, (sx - s // 2 - 1, cy - h * 2, s + 2, h * 2))
+            cy -= h * 2 + 1
+        # Griff
+        pygame.draw.rect(surf, (210, 180, 100), (sx - 2, sy - 3, 4, 5), border_radius=1)
+
+    def _burger(self, surf, sx, sy, s):
+        bw = s + 4
+        # Boden-Bun
+        pygame.draw.ellipse(surf, (210, 160, 80),  (sx - bw // 2, sy - 4, bw, 6))
+        # Patty
+        pygame.draw.ellipse(surf, (120, 70, 30),   (sx - bw // 2 + 1, sy - 8, bw - 2, 5))
+        # Salat
+        pygame.draw.ellipse(surf, (60, 180, 60),   (sx - bw // 2 - 1, sy - 11, bw + 2, 4))
+        # Käse
+        pygame.draw.rect(surf,    (240, 210, 50),  (sx - bw // 2 + 1, sy - 14, bw - 2, 4))
+        # Tomate
+        pygame.draw.ellipse(surf, (220, 60, 50),   (sx - bw // 2 + 2, sy - 17, bw - 4, 3))
+        # Oben-Bun
+        pygame.draw.ellipse(surf, (210, 160, 80),  (sx - bw // 2, sy - 23, bw, 8))
+        pygame.draw.ellipse(surf, (230, 185, 100), (sx - bw // 2 + 2, sy - 24, bw - 4, 4))
+        # Sesam
+        for dx in [-3, 0, 3]:
+            pygame.draw.circle(surf, (240, 230, 160), (sx + dx, sy - 22), 1)
+
+    def _cake(self, surf, sx, sy, s):
+        cw = s + 3
+        # Basis
+        pygame.draw.rect(surf, (220, 160, 180), (sx - cw // 2, sy - s * 2, cw, s * 2), border_radius=2)
+        # Schichten
+        pygame.draw.line(surf, (255, 200, 210), (sx - cw // 2, sy - s, sx + cw // 2, sy - s), 2)
+        # Glasur oben
+        pygame.draw.ellipse(surf, (255, 220, 230), (sx - cw // 2 - 1, sy - s * 2 - 3, cw + 2, 8))
+        # Kerze
+        pygame.draw.rect(surf, (255, 255, 180), (sx, sy - s * 2 - 10, 3, 8))
+        # Flamme
+        pygame.draw.circle(surf, (255, 180, 40), (sx + 1, sy - s * 2 - 11), 3)
+        pygame.draw.circle(surf, (255, 240, 80), (sx + 1, sy - s * 2 - 11), 1)
+        # Deko-Punkte
+        for i, col in enumerate([(255,80,80),(80,80,255),(80,255,80)]):
+            pygame.draw.circle(surf, col, (sx - cw // 2 + 3 + i * (cw // 3), sy - s - 4), 2)
+
+    def _apple(self, surf, sx, sy, s):
+        # Apfel-Körper
+        pygame.draw.circle(surf, (210, 45, 45), (sx, sy - s), s)
+        pygame.draw.circle(surf, (240, 80, 80), (sx - s // 3, sy - s - s // 3), s // 3)
+        # Glanz
+        pygame.draw.circle(surf, (255, 200, 200), (sx - s // 3, sy - s - s // 4), s // 4)
+        # Stiel
+        pygame.draw.line(surf, (100, 70, 30), (sx, sy - s * 2), (sx + 2, sy - s * 2 - 5), 2)
+        # Blatt
+        leaf_pts = [(sx + 2, sy - s * 2 - 4), (sx + 8, sy - s * 2 - 8),
+                    (sx + 5, sy - s * 2 - 2)]
+        pygame.draw.polygon(surf, (60, 160, 60), leaf_pts)
+
+    def _broccoli(self, surf, sx, sy, s):
+        # Stiel
+        pygame.draw.rect(surf, (100, 150, 60), (sx - 2, sy - s, 4, s))
+        # Baumkrone aus Kreisen
+        crowns = [
+            (0, -s * 2, s),
+            (-s // 2 - 1, -s - s // 2, s // 2 + 2),
+            (s // 2 + 1,  -s - s // 2, s // 2 + 2),
+            (-s // 3, -s * 2 - s // 2, s // 2),
+            (s // 3,  -s * 2 - s // 2, s // 2),
+        ]
+        for dx, dy, r in crowns:
+            pygame.draw.circle(surf, (50, 160, 50),  (sx + dx, sy + dy), r)
+            pygame.draw.circle(surf, (80, 200, 70),  (sx + dx - 1, sy + dy - 1), max(1, r - 2))
+        # Textur-Punkte
+        for dx, dy in [(-2,-s*2-2),(2,-s*2-2),(0,-s*2+2),(-3,-s-s//2),(3,-s-s//2)]:
+            pygame.draw.circle(surf, (30, 120, 30), (sx+dx, sy+dy), 1)
+
+    def _sushi(self, surf, sx, sy, s):
+        sw = s + 3
+        # Nori (schwarz)
+        pygame.draw.rect(surf, (30, 30, 30), (sx - sw // 2, sy - s - 2, sw, s + 4), border_radius=2)
+        # Reis
+        pygame.draw.rect(surf, (250, 248, 240), (sx - sw // 2 + 1, sy - s, sw - 2, s), border_radius=1)
+        # Fisch obenauf
+        pygame.draw.ellipse(surf, (255, 160, 120), (sx - sw // 2 + 1, sy - s - 6, sw - 2, 7))
+        pygame.draw.ellipse(surf, (255, 200, 180), (sx - sw // 2 + 3, sy - s - 5, sw - 6, 4))
+        # Nori-Streifen seitlich
+        pygame.draw.rect(surf, (20, 20, 20), (sx - sw // 2, sy - s - 2, 2, s + 4))
+        pygame.draw.rect(surf, (20, 20, 20), (sx + sw // 2 - 2, sy - s - 2, 2, s + 4))
+
+    def _taco(self, surf, sx, sy, s):
+        # Taco-Shell (U-Form, schräg)
+        shell_pts = [
+            (sx - s, sy), (sx + s, sy),
+            (sx + s - 2, sy - s), (sx - s + 2, sy - s),
+        ]
+        pygame.draw.polygon(surf, (220, 185, 80), shell_pts)
+        pygame.draw.polygon(surf, (240, 210, 100), shell_pts, 2)
+        # Füllung
+        pygame.draw.rect(surf, (160, 80, 40),  (sx - s + 3, sy - s + 2, s * 2 - 6, 4))  # Fleisch
+        pygame.draw.rect(surf, (60, 180, 60),  (sx - s + 3, sy - s + 5, s * 2 - 6, 2))  # Salat
+        pygame.draw.rect(surf, (220, 60, 50),  (sx - s + 3, sy - s + 6, s * 2 - 6, 2))  # Salsa
+        pygame.draw.rect(surf, (240, 230, 200),(sx - s + 3, sy - s + 7, s * 2 - 6, 3))  # Käse
+        # Knuspriger Rand
+        pygame.draw.arc(surf, (200, 160, 50),
+            (sx - s - 1, sy - s - 1, s * 2 + 2, s * 2 + 2), math.pi, 2 * math.pi, 2)
+
+    def _watermelon(self, surf, sx, sy, s):
+        # Halbkreis (Scheibe)
+        pygame.draw.circle(surf, (220, 50, 70),  (sx, sy - s // 2), s)
+        pygame.draw.circle(surf, (255, 100, 100),(sx - s // 3, sy - s), s // 3)
+        # Weisser Rand
+        pygame.draw.circle(surf, (230, 230, 220),(sx, sy - s // 2), s, 3)
+        # Schale
+        pygame.draw.arc(surf, (50, 160, 60),
+            (sx - s, sy - s * 2, s * 2, s * 2), math.pi, 2 * math.pi, 4)
+        # Kerne
+        for dx, dy in [(-3, -2), (2, -4), (-1, -7), (4, -1)]:
+            pygame.draw.circle(surf, (30, 20, 20), (sx + dx, sy - s // 2 + dy), 2)
+
+    def _donut(self, surf, sx, sy, s):
+        # Donut-Ring
+        pygame.draw.circle(surf, (210, 145, 85), (sx, sy - s), s)
+        pygame.draw.circle(surf, (55, 125, 55),  (sx, sy - s), s // 3)  # Loch (Hintergrund)
+        # Glasur
+        pygame.draw.circle(surf, (240, 160, 190),(sx, sy - s), s - 2)
+        pygame.draw.circle(surf, (55, 125, 55),  (sx, sy - s), s // 3)
+        # Streusel
+        sprinkle_cols = [(255,80,80),(80,80,255),(80,220,80),(255,220,80)]
+        for i in range(6):
+            a = i * math.pi / 3
+            rx = sx + int(math.cos(a) * (s - 4))
+            ry = (sy - s) + int(math.sin(a) * (s - 4))
+            col = sprinkle_cols[i % len(sprinkle_cols)]
+            pygame.draw.rect(surf, col, (rx - 1, ry - 2, 2, 4), border_radius=1)
 
 
 # ─── Schrein ──────────────────────────────────────────────────────────────────
