@@ -933,7 +933,7 @@ class World:
         ]
         y=10
         for f,txt,col in lines:
-            surf.blit(f.render(txt,True,col),(12,y)); y+=f.size-4
+            surf.blit(f.render(txt,True,col),(12,y)); y+=f.get_height()-2
 
 
 # ─── Datenbank ────────────────────────────────────────────────────────────────
