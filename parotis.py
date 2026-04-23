@@ -1302,10 +1302,23 @@ class DB:
         world.total_died = int(m.get("died", 0))
         if "tilemap" in m:
             world.tilemap = json.loads(m["tilemap"])
+        # v2→v3 Feld-Migration: alte Gene entfernen, neue ergänzen
+        V2_REMOVE = {"body_type", "eye_size", "limbs"}
+        V3_FIELDS  = set(Genome.__dataclass_fields__.keys())
         for row in self.conn.execute("SELECT * FROM parotis"):
             (id_, gx, gy, gen, age, g_json, hunger, energy,
              happy, trust, piety, children, par, hist, runner) = row
-            p = Paroti(gx, gy, Genome(**json.loads(g_json)), gen, pid=int(id_))
+            raw = json.loads(g_json)
+            # Alte Felder entfernen
+            for k in list(raw.keys()):
+                if k not in V3_FIELDS:
+                    del raw[k]
+            # Fehlende neue Felder mit Default ergänzen
+            defaults = Genome()
+            for k in V3_FIELDS:
+                if k not in raw:
+                    raw[k] = getattr(defaults, k)
+            p = Paroti(gx, gy, Genome(**raw), gen, pid=int(id_))
             p.age      = age
             p.hunger   = hunger
             p.energy   = energy
