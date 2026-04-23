@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Parotis
+Comment=Die lebende Welt – Paroti Zivilisationssimulation
+Exec=bash -c "cd /home/pi/parotis && unclutter -idle 0.1 -root & xset s off & python3 parotis.py"
+Icon=/home/pi/parotis/icon.png
+Terminal=false
+Categories=Game;Simulation;
+StartupNotify=false
