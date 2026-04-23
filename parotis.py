@@ -1177,11 +1177,17 @@ class Game:
 
     def run(self):
         print("🎮 Parotis v2 startet ...")
+        print(f"   Auflösung: {self.W}x{self.H}")
+        print(f"   Maus-Modus: {self.mouse_mode}")
         try:
             while self.running:
                 self.events(); self.update(); self.draw()
                 self.clock.tick(FPS)
-        finally:
+        except Exception as e:
+            import traceback
+            print("Game-Loop Fehler:")
+            print(traceback.format_exc())
+            print(traceback.format_exc())
             print("💾 Speichert ...")
             self.db.save(self.world); self.db.close()
             pygame.quit()
@@ -1190,4 +1196,9 @@ class Game:
 
 
 if __name__=="__main__":
+    # SDL-Umgebung prüfen
+    if "DISPLAY" not in os.environ and "WAYLAND_DISPLAY" not in os.environ:
+        os.environ.setdefault("SDL_VIDEODRIVER", "fbdev")
+        os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
+        print("⚠  Kein DISPLAY gefunden – versuche fbdev (Framebuffer)")
     Game().run()
