@@ -868,7 +868,7 @@ class Food:
         # Basis
         pygame.draw.rect(surf, (220, 160, 180), (sx - cw // 2, sy - s * 2, cw, s * 2), border_radius=2)
         # Schichten
-        pygame.draw.line(surf, (255, 200, 210), (sx - cw // 2, sy - s, sx + cw // 2, sy - s), 2)
+        pygame.draw.line(surf, (255, 200, 210), (sx - cw // 2, sy - s), (sx + cw // 2, sy - s), 2)
         # Glasur oben
         pygame.draw.ellipse(surf, (255, 220, 230), (sx - cw // 2 - 1, sy - s * 2 - 3, cw + 2, 8))
         # Kerze
