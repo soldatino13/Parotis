@@ -62,8 +62,8 @@ FPS      = 60
 SAVE_EVERY = 30
 MAX_POP  = 150
 INIT_POP = 18
-MAX_FOOD = 90
-FOOD_RATE = 0.032
+MAX_FOOD = 120
+FOOD_RATE = 0.055
 LIFESPAN = 60 * 60 * 7
 
 # Iso-Parameter (nach Screen-Init gesetzt)
@@ -84,8 +84,10 @@ C_SHRINE   = (255, 240, 180)
 T_GRASS = 0
 T_DARK  = 1
 T_STONE = 2
-T_WATER = 3
-T_SAND  = 4
+T_WATER  = 3
+T_SAND   = 4
+T_RIVER  = 5
+T_BRIDGE = 6
 
 TILE_COLORS = {
     # typ: (top, left, right)
@@ -94,6 +96,8 @@ TILE_COLORS = {
     T_STONE: ((130, 130, 120),(110, 110, 100),(150, 150, 140)),
     T_WATER: ((45, 90, 170),  (35, 70, 140),  (55, 110, 195)),
     T_SAND:  ((195, 175, 105),(165, 148, 82), (215, 198, 125)),
+    T_RIVER: ((55, 115, 195), (40, 88, 160),  (70, 138, 220)),
+    T_BRIDGE:((160, 130, 80), (130, 100, 55), (185, 155, 100)),
 }
 
 SKIN_TONES = [
@@ -186,8 +190,14 @@ def screen_to_grid(sx: int, sy: int) -> Tuple[float, float]:
 
 
 # ─── Tilemap ──────────────────────────────────────────────────────────────────
+# Brücken-Positionen (global, damit Pathfinding drauf zugreift)
+BRIDGE_POS: List[Tuple[int,int]] = []
+RIVER_TILES: List[Tuple[int,int]] = []
+
+
 def make_tilemap() -> List[List[int]]:
-    rng = random.Random(42)   # Seed für reproducible Map
+    global BRIDGE_POS, RIVER_TILES
+    rng = random.Random(42)
     tm  = [[T_GRASS] * GRID_H for _ in range(GRID_W)]
 
     # Dunkle Gras-Flecken
@@ -196,48 +206,58 @@ def make_tilemap() -> List[List[int]]:
         cy = rng.randint(2, GRID_H - 3)
         for dx in range(-3, 4):
             for dy in range(-3, 4):
-                if rng.random() < 0.45 - abs(dx) * 0.05 - abs(dy) * 0.05:
-                    nx, ny = cx + dx, cy + dy
+                if rng.random() < 0.45 - abs(dx)*0.05 - abs(dy)*0.05:
+                    nx, ny = cx+dx, cy+dy
                     if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
                         tm[nx][ny] = T_DARK
 
-    # Zwei Steinpfade
-    for start_y in [GRID_H // 3, GRID_H * 2 // 3]:
+    # Steinpfade (oben + unten)
+    for start_y in [GRID_H // 4, GRID_H * 3 // 4]:
         y = start_y
         for x in range(0, GRID_W):
-            y = max(1, min(GRID_H - 2, y + rng.randint(-1, 1)))
+            y = max(1, min(GRID_H-2, y + rng.randint(-1,1)))
             for dy in range(-1, 2):
-                ny = y + dy
+                ny = y+dy
                 if 0 <= ny < GRID_H:
                     tm[x][ny] = T_STONE
-            # Rand dunkler
             for dy in (-2, 2):
-                ny = y + dy
+                ny = y+dy
                 if 0 <= ny < GRID_H and tm[x][ny] != T_STONE:
                     tm[x][ny] = T_DARK
 
     # Sand-Oasen
     for _ in range(10):
-        cx = rng.randint(2, GRID_W - 3)
-        cy = rng.randint(2, GRID_H - 3)
+        cx = rng.randint(2, GRID_W-3)
+        cy = rng.randint(2, GRID_H-3)
         r  = rng.randint(1, 3)
-        for dx in range(-r, r + 1):
-            for dy in range(-r, r + 1):
-                if dx * dx + dy * dy <= r * r:
-                    nx, ny = cx + dx, cy + dy
+        for dx in range(-r, r+1):
+            for dy in range(-r, r+1):
+                if dx*dx+dy*dy <= r*r:
+                    nx, ny = cx+dx, cy+dy
                     if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
                         tm[nx][ny] = T_SAND
 
-    # Wasser-Teiche (innen)
-    for _ in range(3):
-        cx = rng.randint(4, GRID_W - 5)
-        cy = rng.randint(4, GRID_H - 5)
-        for dx in range(-2, 3):
-            for dy in range(-1, 2):
-                if rng.random() < 0.7:
-                    nx, ny = cx + dx, cy + dy
-                    if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
-                        tm[nx][ny] = T_WATER
+    # ── Bach (diagonal von links-mitte nach rechts-mitte) ──────────────────
+    RIVER_TILES.clear()
+    BRIDGE_POS.clear()
+    # Brücken bei ~1/3 und ~2/3 der Map-Breite
+    bridge_xs = [GRID_W // 3, GRID_W * 2 // 3]
+    ry = GRID_H // 2
+    for x in range(GRID_W):
+        ry = max(2, min(GRID_H-3, ry + rng.choice([-1, 0, 0, 0, 1])))
+        for dy in range(-1, 2):
+            ny = ry + dy
+            if 0 <= ny < GRID_H:
+                # Brücke an den bridge_xs-Stellen
+                is_bridge = any(abs(x - bx) <= 1 for bx in bridge_xs)
+                if is_bridge:
+                    tm[x][ny] = T_BRIDGE
+                    if abs(x - bridge_xs[0]) <= 1 or abs(x - bridge_xs[1]) <= 1:
+                        if (x, ny) not in BRIDGE_POS:
+                            BRIDGE_POS.append((x, ny))
+                else:
+                    tm[x][ny] = T_RIVER
+                    RIVER_TILES.append((x, ny))
 
     return tm
 
@@ -296,6 +316,28 @@ def _draw_tile_details(s, sx, sy, tw, th, tile_type, rng_seed):
             pygame.draw.circle(s, (180, 170, 140),
                 (sx + rng.randint(-5,5), sy + rng.randint(-3,3)), 2)
 
+    elif tile_type == T_RIVER:
+        # Wellen-Animation (wird bei render gebacken → statisch)
+        for i in range(3):
+            wx = sx + rng.randint(-tw//4, tw//4)
+            wy = sy + rng.randint(-th//4, th//4)
+            pygame.draw.line(s, (80, 145, 220), (wx-4, wy), (wx+4, wy), 1)
+        if rng.random() < 0.25:
+            pygame.draw.circle(s, (140, 200, 255),
+                (sx+rng.randint(-4,4), sy+rng.randint(-3,3)), 1)
+
+    elif tile_type == T_BRIDGE:
+        # Holzplanken-Muster
+        plank_col = (145, 110, 65)
+        for i in range(-2, 3):
+            pygame.draw.line(s, plank_col,
+                (sx - tw//3 + i*4, sy - th//4),
+                (sx + tw//3 + i*4, sy + th//4), 2)
+        pygame.draw.line(s, (110, 82, 42),
+            (sx - tw//2, sy), (sx + tw//2, sy), 1)
+        pygame.draw.line(s, (110, 82, 42),
+            (sx - tw//2, sy - th//4), (sx + tw//2, sy - th//4), 1)
+
 
 def render_floor(screen_w: int, screen_h: int, tilemap: List[List[int]]) -> pygame.Surface:
     s   = pygame.Surface((screen_w, screen_h))
@@ -313,6 +355,7 @@ def render_floor(screen_w: int, screen_h: int, tilemap: List[List[int]]) -> pyga
     for _, gx, gy in tiles:
         t = (T_WATER if (gx < 0 or gx >= GRID_W or gy < 0 or gy >= GRID_H)
              else tilemap[gx][gy])
+        if t not in TILE_COLORS: t = T_GRASS  # Fallback
         sx, sy = iso(gx, gy)
         tc, lc, rc = TILE_COLORS[t]
 
@@ -396,7 +439,7 @@ class Genome:
         return 0.025 + self.speed * 0.07
 
     def hunger_rate(self):
-        return 0.00004 + self.hunger_r * 0.00018
+        return 0.000015 + self.hunger_r * 0.00008
 
     def char_h(self):
         return int(26 + self.size * 14)
@@ -506,10 +549,11 @@ class Paroti:
         self.t   += 1
         self.hunger = min(1.0, self.hunger + self.g.hunger_rate())
         if self.state == S.SLEEP:
-            self.energy  = min(1.0, self.energy + 0.004)
+            self.energy  = min(1.0, self.energy + 0.008)
+            self.hunger  = max(0.0, self.hunger - 0.00005)
             self.dream_t += 1
         else:
-            self.energy  = max(0.0, self.energy - 0.0004)
+            self.energy  = max(0.0, self.energy - 0.00015)
             self.dream_t = 0
         if self.petting > 0:
             self.petting -= 1
@@ -545,7 +589,7 @@ class Paroti:
         if self.energy < 0.18:
             self.state = S.SLEEP
             return
-        if self.state == S.SLEEP and self.energy > 0.85:
+        if self.state == S.SLEEP and self.energy > 0.65:
             self.state = S.WANDER
         if (self._shrine_cd == 0 and world.shrine
                 and self.hunger < 0.6
@@ -584,7 +628,7 @@ class Paroti:
                 self._toward(f.gx, f.gy)
                 if self._dist(f.gx, f.gy) < self._sz + 0.5:
                     world.eat_food(f)
-                    self.hunger = max(0.0, self.hunger - 0.65)
+                    self.hunger = max(0.0, self.hunger - 0.80)
                     self.happy  = min(1.0, self.happy + 0.12)
                     self.state  = S.WANDER
             else:
@@ -652,16 +696,24 @@ class Paroti:
                     GlyphBubble(self.gx, self.gy, (255, 255, 100)))
                 self.state = S.WANDER
 
+    def _is_blocked(self, gx: float, gy: float, tilemap) -> bool:
+        tx, ty = int(gx), int(gy)
+        if 0 <= tx < GRID_W and 0 <= ty < GRID_H:
+            t = tilemap[tx][ty]
+            return t == T_RIVER or t == T_WATER
+        return False
+
     def _wander(self):
         if random.random() < 0.018:
             a   = random.uniform(0, math.tau)
             spd = self.g.px_speed()
             self.vx = math.cos(a) * spd
             self.vy = math.sin(a) * spd
-        self.gx += self.vx
-        self.gy += self.vy
+        nx, ny = self.gx + self.vx, self.gy + self.vy
         if self.vx != 0:
             self.facing_right = self.vx > 0
+        self.gx += self.vx
+        self.gy += self.vy
 
     def _toward(self, tx: float, ty: float):
         dx, dy = tx - self.gx, ty - self.gy
@@ -670,8 +722,25 @@ class Paroti:
             spd = self.g.px_speed()
             self.vx = dx / d * spd
             self.vy = dy / d * spd
-            self.gx += self.vx
-            self.gy += self.vy
+            nx = self.gx + self.vx
+            ny = self.gy + self.vy
+            # Wasser meiden → entlang der Wand gleiten
+            ix, iy = int(nx), int(ny)
+            if 0 <= ix < GRID_W and 0 <= iy < GRID_H:
+                t = 0
+                try:
+                    from __main__ import _world_tilemap
+                    t = _world_tilemap[ix][iy]
+                except Exception:
+                    pass
+                if t in (T_RIVER, T_WATER):
+                    # Versuche nur X oder nur Y
+                    self.vx = -self.vx * 0.5
+                    self.vy = -self.vy * 0.5
+                    nx = self.gx + self.vx
+                    ny = self.gy + self.vy
+            self.gx = nx
+            self.gy = ny
             self.facing_right = self.vx > 0
 
     def _move_dir(self, dx: float, dy: float):
@@ -851,6 +920,7 @@ FOOD_TYPES = [
     "apple", "broccoli", "sushi", "taco",
     "watermelon", "donut",
 ]
+RIVER_FOOD_TYPES = ["fish", "fish", "fish", "clam"]
 
 FOOD_GLOW = {
     "pizza":      (240, 180, 40),
@@ -863,6 +933,8 @@ FOOD_GLOW = {
     "taco":       (240, 200, 80),
     "watermelon": (50,  200, 80),
     "donut":      (220, 140, 180),
+    "fish":       (255, 200, 80),
+    "clam":       (240, 220, 200),
 }
 
 
@@ -906,6 +978,8 @@ class Food:
         elif self.typ == "taco":       self._taco(surf, sx, sy, s)
         elif self.typ == "watermelon": self._watermelon(surf, sx, sy, s)
         elif self.typ == "donut":      self._donut(surf, sx, sy, s)
+        elif self.typ == "fish":       self._fish(surf, sx, sy, s)
+        elif self.typ == "clam":       self._clam(surf, sx, sy, s)
 
     # ── Essen-Zeichnungen ────────────────────────────────────────────────────
     def _pizza(self, surf, sx, sy, s):
@@ -1066,6 +1140,38 @@ class Food:
             ry = (sy - s) + int(math.sin(a) * (s - 4))
             col = sprinkle_cols[i % len(sprinkle_cols)]
             pygame.draw.rect(surf, col, (rx - 1, ry - 2, 2, 4), border_radius=1)
+
+    def _fish(self, surf, sx, sy, s):
+        # Körper
+        pygame.draw.ellipse(surf, (255, 185, 65), (sx - s, sy - s // 2, s * 2, s))
+        pygame.draw.ellipse(surf, (255, 215, 110),(sx - s + 3, sy - s // 2 + 2, s * 2 - 6, s - 4))
+        # Schwanzflosse
+        pts = [(sx + s, sy - s // 2), (sx + s + s // 2, sy - s),
+               (sx + s + s // 2, sy + s // 2), (sx + s, sy + s // 2)]
+        pygame.draw.polygon(surf, (220, 150, 40), pts)
+        # Auge
+        pygame.draw.circle(surf, (20, 20, 20), (sx - s + s // 3, sy), 2)
+        pygame.draw.circle(surf, (255, 255, 255),(sx - s + s // 3, sy), 1)
+        # Flossen
+        pygame.draw.polygon(surf, (220, 160, 50),
+            [(sx - s // 2, sy - s // 2), (sx + s // 3, sy - s // 2 - s // 3),
+             (sx + s // 3, sy - s // 2)])
+        # Wasser-Tropfen
+        pygame.draw.circle(surf, (100, 180, 255), (sx + s // 2, sy - s // 2 - 4), 2)
+
+    def _clam(self, surf, sx, sy, s):
+        # Muschel unten
+        pygame.draw.ellipse(surf, (210, 195, 175),(sx - s, sy - s // 3, s * 2, s // 2 + 2))
+        # Muschel oben
+        pygame.draw.ellipse(surf, (230, 215, 195),(sx - s, sy - s, s * 2, s))
+        pygame.draw.ellipse(surf, (245, 235, 220),(sx - s + 4, sy - s + 3, s * 2 - 8, s - 6))
+        # Perle
+        pygame.draw.circle(surf, (240, 240, 255),(sx, sy - s // 2), s // 3)
+        pygame.draw.circle(surf, (255, 255, 255),(sx - 1, sy - s // 2 - 1), s // 6)
+        # Rippen
+        for i in range(-2, 3):
+            lx = sx + i * (s // 3)
+            pygame.draw.line(surf, (190, 175, 155),(lx, sy - s + 4),(lx + i, sy - 2), 1)
 
 
 # ─── Dekorationen (Bäume, Felsen, Sträucher) ─────────────────────────────────
@@ -1573,8 +1679,16 @@ class World:
     def setup_mailbox(self, screen_w: int, screen_h: int):
         self.mailbox = Mailbox(
             INBOX_DIR, GRID_W * 0.15, GRID_H * 0.75, screen_w, screen_h)
+        # Tilemap global verfügbar machen für Paroti-Kollision
+        import __main__
+        __main__._world_tilemap = self.tilemap
+
+    def _export_tilemap(self):
+        import __main__
+        __main__._world_tilemap = self.tilemap
 
     def spawn_initial(self):
+        self._export_tilemap()
         for _ in range(INIT_POP):
             self.parotis.append(Paroti(
                 random.uniform(1.0, GRID_W - 1.0),
@@ -1602,10 +1716,35 @@ class World:
     def update(self):
         self.t   += 1
         self.day  = self.t // (60 * 35)
+        # Normales Futter
         if len(self.food) < MAX_FOOD and random.random() < FOOD_RATE:
             self.food.append(Food(
                 random.uniform(1.0, GRID_W - 1.0),
                 random.uniform(1.0, GRID_H - 1.0)))
+
+        # Notfall-Futter wenn Population zu tief
+        if len(self.parotis) > 0 and len(self.parotis) < 8 and random.random() < 0.15:
+            for _ in range(5):
+                self.food.append(Food(
+                    random.uniform(1.0, GRID_W - 1.0),
+                    random.uniform(1.0, GRID_H - 1.0)))
+
+        # Fisch im Bach spawnen (langsamer)
+        if RIVER_TILES and random.random() < 0.008:
+            rx, ry = random.choice(RIVER_TILES)
+            fish = Food(rx + random.uniform(0.1, 0.9), ry + random.uniform(0.1, 0.9))
+            fish.typ = random.choice(RIVER_FOOD_TYPES)
+            fish.col = FOOD_GLOW.get(fish.typ, (255, 200, 80))
+            self.food.append(fish)
+
+        # Apfelbäume droppen Äpfel (alle 8 Sek ca.)
+        if self.t % 480 == 0:
+            for d in self.decos:
+                if d.typ == "tree_big" and random.random() < 0.3:
+                    drop = Food(d.gx + random.uniform(-1.5, 1.5),
+                                d.gy + random.uniform(-1.5, 1.5))
+                    drop.typ = "apple"
+                    self.food.append(drop)
         for f in self.food:
             f.update()
         if self.shrine:
@@ -1623,6 +1762,14 @@ class World:
                     self._log(
                         f"Tag {self.day}: #{p.id} (G{p.gen}) gestorben,"
                         f" {p.children} Kinder")
+            if len(self.parotis) == 0:
+                self._log(f"Tag {self.day}: ⚠ Alle Parotis gestorben! Notfall-Wiederbelebung...")
+                for _ in range(6):
+                    self.spawn_one()
+                for _ in range(30):
+                    self.food.append(Food(
+                        random.uniform(1.0, GRID_W-1.0),
+                        random.uniform(1.0, GRID_H-1.0)))
         if self.shrine:
             self.shrine.visitors = sum(
                 1 for p in self.parotis if p.state == S.WORSHIP)
