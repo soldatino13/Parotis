@@ -60,7 +60,7 @@ GRID_W   = 30
 GRID_H   = 20
 FPS      = 60
 SAVE_EVERY = 30
-MAX_POP  = 80
+MAX_POP  = 150
 INIT_POP = 18
 MAX_FOOD = 90
 FOOD_RATE = 0.032
@@ -1320,7 +1320,7 @@ class Mailbox:
         elif cmd == "FEST":       world.feast();  self._show("🎉 Grosses Fest!")
         elif cmd == "FRIEDEN":    world.peace();  self._show("☮ Friede!")
         elif cmd == "NEU":
-            n = max(1, min(10, int(arg) if arg.isdigit() else 3))
+            n = max(1, min(60, int(arg) if arg.isdigit() else 3))
             for _ in range(n): world.spawn_one()
             self._show(f"👶 {n} neue Parotis!")
         elif cmd == "ALLE_WECKEN": world.wakeall(); self._show("⚡ Alle wach!")
