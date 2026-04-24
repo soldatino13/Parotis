@@ -577,6 +577,18 @@ class Paroti:
 
         self.gx = max(0.5, min(GRID_W - 0.5, self.gx))
         self.gy = max(0.5, min(GRID_H - 0.5, self.gy))
+        # Wasser-Kollision: zurückstossen
+        if world.tilemap:
+            ix, iy = int(self.gx), int(self.gy)
+            if 0 <= ix < GRID_W and 0 <= iy < GRID_H:
+                t = world.tilemap[ix][iy]
+                if t == T_RIVER:
+                    self.gx -= self.vx * 2.5
+                    self.gy -= self.vy * 2.5
+                    a = random.uniform(0, math.tau)
+                    spd = self.g.px_speed()
+                    self.vx = math.cos(a) * spd
+                    self.vy = math.sin(a) * spd
         self.happy = max(0.0, min(1.0, self.happy - 0.0001))
 
     def _decide(self, world: 'World'):
@@ -696,20 +708,12 @@ class Paroti:
                     GlyphBubble(self.gx, self.gy, (255, 255, 100)))
                 self.state = S.WANDER
 
-    def _is_blocked(self, gx: float, gy: float, tilemap) -> bool:
-        tx, ty = int(gx), int(gy)
-        if 0 <= tx < GRID_W and 0 <= ty < GRID_H:
-            t = tilemap[tx][ty]
-            return t == T_RIVER or t == T_WATER
-        return False
-
     def _wander(self):
         if random.random() < 0.018:
             a   = random.uniform(0, math.tau)
             spd = self.g.px_speed()
             self.vx = math.cos(a) * spd
             self.vy = math.sin(a) * spd
-        nx, ny = self.gx + self.vx, self.gy + self.vy
         if self.vx != 0:
             self.facing_right = self.vx > 0
         self.gx += self.vx
@@ -722,25 +726,8 @@ class Paroti:
             spd = self.g.px_speed()
             self.vx = dx / d * spd
             self.vy = dy / d * spd
-            nx = self.gx + self.vx
-            ny = self.gy + self.vy
-            # Wasser meiden → entlang der Wand gleiten
-            ix, iy = int(nx), int(ny)
-            if 0 <= ix < GRID_W and 0 <= iy < GRID_H:
-                t = 0
-                try:
-                    from __main__ import _world_tilemap
-                    t = _world_tilemap[ix][iy]
-                except Exception:
-                    pass
-                if t in (T_RIVER, T_WATER):
-                    # Versuche nur X oder nur Y
-                    self.vx = -self.vx * 0.5
-                    self.vy = -self.vy * 0.5
-                    nx = self.gx + self.vx
-                    ny = self.gy + self.vy
-            self.gx = nx
-            self.gy = ny
+            self.gx += self.vx
+            self.gy += self.vy
             self.facing_right = self.vx > 0
 
     def _move_dir(self, dx: float, dy: float):
@@ -941,9 +928,13 @@ FOOD_GLOW = {
 class Food:
     def __init__(self, gx: float, gy: float):
         self.gx, self.gy = gx, gy
-        self.typ = random.choice(FOOD_TYPES)
-        self.sz  = random.uniform(0.75, 1.15)
-        self.age = 0
+        self.typ     = random.choice(FOOD_TYPES)
+        self.sz      = random.uniform(0.75, 1.15)
+        self.age     = 0
+        self.max_age = random.randint(60*45, 60*90)  # 45–90 Sek Lebensdauer
+
+    @property
+    def expired(self): return self.age > self.max_age
 
     def update(self): self.age += 1
     def depth_key(self): return self.gx + self.gy
@@ -956,10 +947,15 @@ class Food:
         s      = max(6, int(11 * self.sz))
         gc     = FOOD_GLOW.get(self.typ, (200, 200, 100))
 
+        # Verblassen wenn bald weg
+        fade = 1.0
+        if self.max_age > 0:
+            fade = max(0.2, 1.0 - max(0, self.age - self.max_age * 0.75) / (self.max_age * 0.25))
+
         # Glow unter dem Essen
         gw = s + 7
         gs = pygame.Surface((gw * 3, gw * 3), pygame.SRCALPHA)
-        pygame.draw.ellipse(gs, (*gc, 35), (0, gw, gw * 3, gw))
+        pygame.draw.ellipse(gs, (*gc, int(35 * fade)), (0, gw, gw * 3, gw))
         surf.blit(gs, (sx - gw - gw // 2, sy - gw // 2))
 
         # Sprite-Fallback
@@ -1679,16 +1675,8 @@ class World:
     def setup_mailbox(self, screen_w: int, screen_h: int):
         self.mailbox = Mailbox(
             INBOX_DIR, GRID_W * 0.15, GRID_H * 0.75, screen_w, screen_h)
-        # Tilemap global verfügbar machen für Paroti-Kollision
-        import __main__
-        __main__._world_tilemap = self.tilemap
-
-    def _export_tilemap(self):
-        import __main__
-        __main__._world_tilemap = self.tilemap
 
     def spawn_initial(self):
-        self._export_tilemap()
         for _ in range(INIT_POP):
             self.parotis.append(Paroti(
                 random.uniform(1.0, GRID_W - 1.0),
@@ -1730,7 +1718,7 @@ class World:
                     random.uniform(1.0, GRID_H - 1.0)))
 
         # Fisch im Bach spawnen (langsamer)
-        if RIVER_TILES and random.random() < 0.008:
+        if RIVER_TILES and random.random() < 0.003:
             rx, ry = random.choice(RIVER_TILES)
             fish = Food(rx + random.uniform(0.1, 0.9), ry + random.uniform(0.1, 0.9))
             fish.typ = random.choice(RIVER_FOOD_TYPES)
@@ -1738,15 +1726,16 @@ class World:
             self.food.append(fish)
 
         # Apfelbäume droppen Äpfel (alle 8 Sek ca.)
-        if self.t % 480 == 0:
+        if self.t % 1200 == 0:
             for d in self.decos:
-                if d.typ == "tree_big" and random.random() < 0.3:
+                if d.typ == "tree_big" and random.random() < 0.15:
                     drop = Food(d.gx + random.uniform(-1.5, 1.5),
                                 d.gy + random.uniform(-1.5, 1.5))
                     drop.typ = "apple"
                     self.food.append(drop)
         for f in self.food:
             f.update()
+        self.food = [f for f in self.food if not f.expired]
         if self.shrine:
             self.shrine.update()
         if self.mailbox:
