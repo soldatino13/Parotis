@@ -109,6 +109,24 @@ SKIN_TONES = [
 
 GLYPHS = ["◆", "○", "✦", "◇", "★", "△", "▽", "⬡"]
 
+# ─── Sprach-System ────────────────────────────────────────────────────────────
+SYMBOL_POOL = ["◆","○","✦","◇","★","△","▽","⬡","⬟","◈","♦","□","⊕","⊗","⊞"]
+MEANINGS    = ["hunger", "danger", "love", "joy", "warning", "sleep"]
+
+# Globales Wörterbuch: erfasst welche Symbole wie oft für welche Bedeutung
+# gesendet wurden → emergente Konvergenz
+_lang_registry: Dict[str, Dict[str, int]] = {m: {} for m in MEANINGS}
+
+def record_symbol(symbol: str, meaning: str):
+    if meaning in _lang_registry:
+        _lang_registry[meaning][symbol] = _lang_registry[meaning].get(symbol, 0) + 1
+
+def dominant_symbol(meaning: str) -> str:
+    reg = _lang_registry.get(meaning, {})
+    if not reg: return random.choice(SYMBOL_POOL)
+    return max(reg, key=reg.get)
+
+
 
 # ─── Icon-Zeichner für Menü (kein Emoji nötig) ────────────────────────────────
 def draw_menu_icon(surf: pygame.Surface, cx: int, cy: int,
@@ -155,6 +173,13 @@ def draw_menu_icon(surf: pygame.Surface, cx: int, cy: int,
                (cx, cy + 1), (cx - 2, cy + s),
                (cx + s // 2, cy - 1), (cx, cy - 1)]
         pygame.draw.polygon(surf, col, pts)
+    elif action == "music":
+        # Noten-Symbol
+        pygame.draw.line(surf, col, (cx-s+2, cy-s), (cx+s, cy-s+4), 2)
+        pygame.draw.line(surf, col, (cx+s, cy-s+4), (cx+s, cy+s), 2)
+        pygame.draw.circle(surf, col, (cx-s+2, cy+s-2), s//2)
+        pygame.draw.line(surf, col, (cx-2, cy-s+2), (cx+s, cy-s+6), 1)
+        pygame.draw.circle(surf, col, (cx-2, cy+s-2), s//2)
     elif action == "quit":
         # Power-Symbol
         pygame.draw.circle(surf, col, (cx, cy), s, 2)
@@ -408,7 +433,26 @@ class Genome:
     courage:   float = 0.5
     repro:     float = 0.5
     piety:     float = 0.5
-    mut_rate:  float = 0.05
+    tribe_r:   float = 0.5   # Stammes-Farbton R
+    tribe_g:   float = 0.5   # Stammes-Farbton G
+    tribe_b:   float = 0.5   # Stammes-Farbton B
+    # Persönliche Symbole (Index in SYMBOL_POOL)
+    sym_hunger:  float = 0.0
+    sym_danger:  float = 0.25
+    sym_love:    float = 0.5
+    sym_joy:     float = 0.75
+    mut_rate:    float = 0.05
+
+    def tribe_color(self):
+        return (int(60 + self.tribe_r * 180),
+                int(60 + self.tribe_g * 180),
+                int(60 + self.tribe_b * 180))
+
+    def symbol(self, meaning: str) -> str:
+        idx_map = {"hunger": self.sym_hunger, "danger": self.sym_danger,
+                   "love": self.sym_love, "joy": self.sym_joy}
+        idx = int(idx_map.get(meaning, 0) * (len(SYMBOL_POOL)-1))
+        return SYMBOL_POOL[max(0, min(len(SYMBOL_POOL)-1, idx))]
 
     def shirt(self):
         return (int(40 + self.col_r * 215),
@@ -453,6 +497,10 @@ class Genome:
             if name != 'mut_rate':
                 val = max(0.0, min(1.0, val + random.gauss(0, self.mut_rate)))
             genes[name] = val
+        # Stamm-Farbe bleibt ähnlich (Identität vererbt)
+        for tc in ("tribe_r","tribe_g","tribe_b"):
+            avg = (getattr(self, tc) + getattr(other, tc)) / 2
+            genes[tc] = max(0.0, min(1.0, avg + random.gauss(0, 0.05)))
         return Genome(**genes)
 
     @classmethod
@@ -534,8 +582,15 @@ class Paroti:
         self.vy = math.sin(a) * spd
         self.t  = random.randint(0, 100)
         self.facing_right = True
-        self._shrine_cd  = 0
+        self._shrine_cd   = 0
         self._target_disp = None
+        # Sprache
+        self._speak_cd    = 0
+        self.last_meaning = ""
+        # Kollektives Gedächtnis
+        self.memory_trust : Dict[int, float] = {}  # tribe_id → trust
+        # Bau-Bereitschaft
+        self._build_cd    = 0
         self.bubbles: List[GlyphBubble] = []
         self.dream_t = 0
 
@@ -573,7 +628,27 @@ class Paroti:
         for b in self.bubbles:
             b.update()
         self.bubbles = [b for b in self.bubbles if b.life > 0]
-        if self.state == S.SOCIAL and random.random() < 0.02:
+        # Sprechen: Symbole basierend auf Zustand
+        if self._speak_cd > 0:
+            self._speak_cd -= 1
+        elif random.random() < 0.008:
+            self._speak_cd = random.randint(80, 160)
+            meaning = "joy"
+            if self.hunger > 0.65:    meaning = "hunger"
+            elif self.happy < 0.35:   meaning = "danger"
+            elif self.state == S.MATE: meaning = "love"
+            elif self.state == S.SLEEP: meaning = "sleep"
+            symbol = self.g.symbol(meaning)
+            record_symbol(symbol, meaning)
+            self.last_meaning = meaning
+            # Farbe je Bedeutung
+            cols = {"hunger":(255,160,40),"danger":(255,60,60),
+                    "love":(255,120,200),"joy":(120,220,120),
+                    "sleep":(160,140,255),"warning":(255,200,60)}
+            self.bubbles.append(GlyphBubble(self.gx, self.gy,
+                                            cols.get(meaning, self.g.shirt())))
+        # Sozialisieren
+        if self.state == S.SOCIAL and random.random() < 0.015:
             self.bubbles.append(GlyphBubble(self.gx, self.gy, self.g.shirt()))
 
         self._decide(world)
@@ -1191,6 +1266,318 @@ class Food:
             pygame.draw.line(surf, (190, 175, 155),(lx, sy - s + 4),(lx + i, sy - 2), 1)
 
 
+
+
+
+# ─── Generative Musik ─────────────────────────────────────────────────────────
+class MusicEngine:
+    """Generiert Töne aus den Gen-Werten der Parotis-Population."""
+
+    NOTES_HZ = {
+        "C3": 130.8, "D3": 146.8, "E3": 164.8, "F3": 174.6,
+        "G3": 196.0, "A3": 220.0, "B3": 246.9,
+        "C4": 261.6, "D4": 293.7, "E4": 329.6, "F4": 349.2,
+        "G4": 392.0, "A4": 440.0, "B4": 493.9,
+        "C5": 523.3,
+    }
+    NOTE_NAMES = list(NOTES_HZ.keys())
+    SCALE_MAJOR = [0,2,4,5,7,9,11]   # Dur-Skala Intervalle
+    SCALE_MINOR = [0,2,3,5,7,8,10]   # Moll-Skala
+
+    def __init__(self):
+        self.enabled    = False
+        self.t          = 0
+        self.beat       = 0
+        self.bpm        = 72
+        self.next_beat  = 0
+        self._notes     : List[Tuple[int,int,int,float]] = []  # (channel, freq_int, dur, vol)
+        try:
+            pygame.mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=512)
+            pygame.mixer.init()
+            self.enabled = True
+            print("🎵 Musik-Engine initialisiert")
+        except Exception as e:
+            print(f"🔇 Musik nicht verfügbar: {e}")
+
+    def _make_tone(self, freq: float, duration_ms: int,
+                   vol: float = 0.3, wave: str = "sine") -> pygame.sndarray.array:
+        """Generiert einen Sinuston als numpy-Array."""
+        try:
+            import numpy as np
+            sample_rate = 22050
+            n_samples   = int(sample_rate * duration_ms / 1000)
+            t_arr       = np.linspace(0, duration_ms/1000, n_samples, False)
+            if wave == "sine":
+                tone = np.sin(2 * np.pi * freq * t_arr)
+            else:
+                tone = np.sign(np.sin(2 * np.pi * freq * t_arr)) * 0.5
+
+            # Envelope (Attack/Decay)
+            env = np.ones(n_samples)
+            attack  = min(int(sample_rate * 0.02), n_samples // 4)
+            release = min(int(sample_rate * 0.08), n_samples // 3)
+            env[:attack] = np.linspace(0, 1, attack)
+            env[-release:] = np.linspace(1, 0, release)
+            tone = (tone * env * vol * 32767).astype(np.int16)
+            stereo = np.column_stack([tone, tone])
+            return pygame.sndarray.make_sound(stereo)
+        except Exception:
+            return None
+
+    def play_for_population(self, parotis: List):
+        """Spielt eine Note basierend auf der aktuellen Population."""
+        if not self.enabled or not parotis: return
+        now = pygame.time.get_ticks()
+        if now < self.next_beat: return
+
+        # BPM aus Durchschnitts-Speed der Population
+        avg_speed = sum(p.g.speed for p in parotis) / len(parotis)
+        self.bpm  = int(55 + avg_speed * 65)   # 55–120 BPM
+
+        # Skala: frömmige Population = Dur, traurige = Moll
+        avg_happy = sum(p.happy for p in parotis) / len(parotis)
+        scale     = self.SCALE_MAJOR if avg_happy > 0.5 else self.SCALE_MINOR
+
+        # Tonhöhe aus Durchschnitts-Intellekt
+        avg_intel = sum(p.g.intellect for p in parotis) / len(parotis)
+        base_note = int(avg_intel * (len(self.NOTE_NAMES) - 8))
+        note_idx  = scale[self.beat % len(scale)]
+        note_name = self.NOTE_NAMES[max(0, min(len(self.NOTE_NAMES)-1, base_note + note_idx))]
+        freq      = self.NOTES_HZ[note_name]
+
+        # Lautstärke aus Populations-Grösse
+        vol = min(0.35, 0.08 + len(parotis) * 0.004)
+
+        # Dauer aus Körper-Grösse
+        avg_size = sum(p.g.size for p in parotis) / len(parotis)
+        dur_ms   = int(200 + avg_size * 400)
+
+        sound = self._make_tone(freq, dur_ms, vol)
+        if sound:
+            sound.play()
+
+        self.beat     += 1
+        beat_ms        = int(60000 / self.bpm)
+        self.next_beat = now + beat_ms
+
+    def update(self, parotis: List):
+        self.t += 1
+        if self.t % 2 == 0:   # Alle 2 Frames prüfen
+            self.play_for_population(parotis)
+
+# ─── Primitive Strukturen ─────────────────────────────────────────────────────
+class Structure:
+    """Von Parotis gebaute Strukturen: Nester und Mauern."""
+    def __init__(self, gx: float, gy: float, typ: str,
+                 color: Tuple[int,int,int], builder_id: int):
+        self.gx, self.gy  = gx, gy
+        self.typ          = typ       # "nest" | "wall"
+        self.color        = color
+        self.builder_id   = builder_id
+        self.build_prog   = 0.0      # 0→1 Baufortschritt
+        self.t            = 0
+        self.durability   = 1.0      # verwittert langsam
+
+    def depth_key(self): return self.gx + self.gy + 0.02
+
+    def update(self):
+        self.t += 1
+        if self.build_prog < 1.0:
+            self.build_prog = min(1.0, self.build_prog + 0.008)
+        # Langsam verwittern
+        self.durability = max(0.0, self.durability - 0.000015)
+
+    @property
+    def done(self): return self.build_prog >= 1.0
+
+    @property
+    def decayed(self): return self.durability <= 0.0
+
+    def draw(self, surf: pygame.Surface):
+        sx, sy = iso(self.gx, self.gy)
+        prog   = self.build_prog
+        dur    = self.durability
+        col    = self.color
+        dark   = (max(0,col[0]-50), max(0,col[1]-50), max(0,col[2]-50))
+        light  = (min(255,col[0]+60), min(255,col[1]+60), min(255,col[2]+60))
+        alpha  = int(220 * dur * prog)
+
+        if self.typ == "nest":
+            self._draw_nest(surf, sx, sy, col, dark, light, alpha, prog)
+        elif self.typ == "wall":
+            self._draw_wall(surf, sx, sy, col, dark, light, alpha, prog)
+
+    def _draw_nest(self, surf, sx, sy, col, dark, light, alpha, prog):
+        r  = int(14 * prog)
+        if r < 2: return
+        ns = pygame.Surface((r*4, r*3), pygame.SRCALPHA)
+        # Boden (Ellipse)
+        pygame.draw.ellipse(ns, (*dark, alpha), (0, r, r*4, r))
+        # Rand (Zweige)
+        for i in range(8):
+            a  = i * math.pi / 4
+            bx = r*2 + int(math.cos(a) * r * 1.4)
+            by = r + r//2 + int(math.sin(a) * r * 0.5)
+            pygame.draw.line(ns, (*col, alpha),
+                (r*2, r+r//2), (bx, by), 2)
+        # Innen (Gras)
+        pygame.draw.ellipse(ns, (70, 140, 70, min(alpha, 180)),
+            (r//2, r+r//4, r*3, r//2))
+        # Highlight
+        pygame.draw.ellipse(ns, (*light, min(80, alpha)),
+            (r, r+r//3, r*2, r//3))
+        surf.blit(ns, (sx - r*2, sy - r - r//2))
+
+        # Bauprogress-Anzeige
+        if self.build_prog < 1.0:
+            pygame.draw.rect(surf, (60,60,60),(sx-12, sy-r-14, 24, 5))
+            pygame.draw.rect(surf, (80,220,80),
+                (sx-12, sy-r-14, int(24*self.build_prog), 5))
+
+    def _draw_wall(self, surf, sx, sy, col, dark, light, alpha, prog):
+        wh = int(16 * prog)
+        if wh < 3: return
+        ww = 10
+        # Isometrischer Mauerblock
+        top = [(sx, sy-wh),      (sx+ww, sy-wh//2),
+               (sx, sy+wh-wh),   (sx-ww, sy-wh//2)]
+        lft = [(sx-ww, sy-wh//2),(sx, sy),
+               (sx, sy+wh//3),   (sx-ww, sy-wh//2+wh//3)]
+        rgt = [(sx, sy),         (sx+ww, sy-wh//2),
+               (sx+ww, sy-wh//2+wh//3), (sx, sy+wh//3)]
+        # Stein-Textur
+        s2 = pygame.Surface((ww*4, wh*3), pygame.SRCALPHA)
+        pygame.draw.polygon(s2, (*col, alpha),
+            [(ww*2, 0),(ww*3, wh//2),(ww*2, wh),(ww, wh//2)])
+        surf.blit(s2, (sx-ww*2, sy-wh))
+        pygame.draw.polygon(surf, (*dark, alpha), lft)
+        pygame.draw.polygon(surf, (*col, alpha), top)
+        pygame.draw.polygon(surf, (*light, alpha), rgt)
+        pygame.draw.polygon(surf, (0,0,0,alpha//2), top, 1)
+        # Mörtel-Linien
+        pygame.draw.line(surf, (*dark, min(alpha,120)),
+            (sx-ww, sy-wh//4), (sx+ww, sy-wh//4), 1)
+
+# ─── Territorien & Stämme ─────────────────────────────────────────────────────
+class Territory:
+    """Markierter Bereich einer Stammes-Gruppe."""
+    def __init__(self, cx: float, cy: float, radius: float,
+                 color: Tuple[int,int,int], tribe_id: int):
+        self.cx, self.cy  = cx, cy
+        self.radius       = radius
+        self.color        = color
+        self.tribe_id     = tribe_id
+        self.t            = 0
+        self.strength     = 1.0   # 0-1, verblasst wenn Stamm schrumpft
+
+    def update(self): self.t += 1
+
+    def contains(self, gx: float, gy: float) -> bool:
+        return math.hypot(gx - self.cx, gy - self.cy) < self.radius
+
+    def draw(self, surf: pygame.Surface):
+        alpha = int(28 * self.strength)
+        pulse = math.sin(self.t * 0.04) * 3
+        r     = self.radius
+
+        # Iso-Ellipse als Territorium-Markierung
+        # Konvertiere Grid-Radius in Screen-Koordinaten
+        sx, sy = iso(self.cx, self.cy)
+        sw = int(r * TILE_W)
+        sh = int(r * TILE_H * 0.6)
+
+        ts = pygame.Surface((sw * 2 + 4, sh * 2 + 4), pygame.SRCALPHA)
+        pygame.draw.ellipse(ts, (*self.color, alpha),
+            (0, 0, sw * 2, sh * 2))
+        pygame.draw.ellipse(ts, (*self.color, min(100, alpha * 3)),
+            (0, 0, sw * 2, sh * 2), 2)
+        surf.blit(ts, (sx - sw, sy - sh))
+
+        # Grenz-Markierungen (kleine Dreiecke)
+        for i in range(6):
+            a  = i * math.pi / 3 + self.t * 0.005
+            mx = sx + int(math.cos(a) * sw * 0.85)
+            my = sy + int(math.sin(a) * sh * 0.85)
+            pts = [(mx, my-4), (mx-3, my+3), (mx+3, my+3)]
+            pygame.draw.polygon(surf, (*self.color, min(180, alpha*5)), pts)
+
+
+class TribeManager:
+    """Verwaltet Stämme, Territorien und Konflikte."""
+    def __init__(self):
+        self.tribes    : Dict[int, dict]      = {}   # tribe_id → info
+        self.territory : List[Territory]      = []
+        self.t         = 0
+
+    def update(self, parotis: List):
+        self.t += 1
+        if not parotis: return
+
+        # Stämme aus Paroti-Farben clustern (alle 10 Sek)
+        if self.t % 600 == 0:
+            self._recluster(parotis)
+
+        # Territorien aktualisieren
+        for ter in self.territory:
+            ter.update()
+            # Stärke nach Stamm-Grösse anpassen
+            members = sum(1 for p in parotis
+                          if self._tribe_of(p) == ter.tribe_id)
+            ter.strength = max(0.1, min(1.0, members / 8))
+
+        # Alte leere Territorien entfernen
+        self.territory = [t for t in self.territory if t.strength > 0.15]
+
+    def _tribe_of(self, p) -> int:
+        """Weist Paroti einem Stamm zu (basierend auf tribe_r/g/b)."""
+        r = int(p.g.tribe_r * 4)
+        g = int(p.g.tribe_g * 4)
+        b = int(p.g.tribe_b * 4)
+        return (r * 25 + g * 5 + b) % 12
+
+    def _recluster(self, parotis: List):
+        """Neuberechnung der Territorien."""
+        # Stamm-Zentren berechnen
+        tribe_members: Dict[int, list] = {}
+        for p in parotis:
+            tid = self._tribe_of(p)
+            if tid not in tribe_members:
+                tribe_members[tid] = []
+            tribe_members[tid].append(p)
+
+        self.tribes = {}
+        new_territory = []
+        for tid, members in tribe_members.items():
+            if len(members) < 3: continue  # Kein Territorium für Einzelgänger
+            cx = sum(p.gx for p in members) / len(members)
+            cy = sum(p.gy for p in members) / len(members)
+            r  = min(8.0, 1.5 + len(members) * 0.4)
+            col = members[0].g.tribe_color()
+            self.tribes[tid] = {"center": (cx,cy), "size": len(members), "color": col}
+
+            # Bestehendes Territorium updaten oder neu anlegen
+            existing = next((t for t in self.territory if t.tribe_id == tid), None)
+            if existing:
+                existing.cx, existing.cy = cx, cy
+                existing.radius = r
+                new_territory.append(existing)
+            else:
+                new_territory.append(Territory(cx, cy, r, col, tid))
+
+        self.territory = new_territory
+
+    def is_foreign(self, p, gx: float, gy: float) -> bool:
+        """Betritt Paroti ein fremdes Territorium?"""
+        my_tribe = self._tribe_of(p)
+        for ter in self.territory:
+            if ter.tribe_id != my_tribe and ter.contains(gx, gy):
+                return True
+        return False
+
+    def draw(self, surf: pygame.Surface):
+        for ter in self.territory:
+            ter.draw(surf)
+
 # ─── Dekorationen (Bäume, Felsen, Sträucher) ─────────────────────────────────
 class Deco:
     def __init__(self, gx: float, gy: float, typ: str, seed: int):
@@ -1636,6 +2023,7 @@ class TouchMenu:
         ("newlife",   "Neues Leben"),
         ("chronicle", "Chronik"),
         ("wakeall",   "Alle wecken"),
+        ("music",     "Musik"),
         ("quit",      "Ausschalten"),
     ]
 
@@ -1795,7 +2183,10 @@ class World:
         self.total_died = 0
         self.chronicle  : List[str]              = []
         self.decos      : List[Deco]             = []
-        self.dispensers : List[Dispenser]        = []
+        self.dispensers  : List[Dispenser]       = []
+        self.structures  : List[Structure]       = []
+        self.tribes      = TribeManager()
+        self.music       = MusicEngine()
 
     def setup_shrine(self):
         self.shrine = Shrine(GRID_W * 0.72, GRID_H * 0.38, GOD_IMAGE_PATH)
@@ -1881,6 +2272,47 @@ class World:
             self.mailbox.update()
         for d in self.dispensers:
             d.update()
+
+        # Strukturen
+        for s in self.structures:
+            s.update()
+        self.structures = [s for s in self.structures if not s.decayed]
+
+        # Stämme + Territorien
+        self.tribes.update(self.parotis)
+
+        # Generative Musik
+        self.music.update(self.parotis)
+
+        # Paroti bauen Nester (wenn Energie hoch, sesshaft)
+        if self.t % 900 == 0:
+            for p in self.parotis:
+                if (p.energy > 0.8 and p.hunger < 0.3 and p._build_cd == 0
+                        and len(self.structures) < 40):
+                    # Kein Nest wenn schon eines in der Nähe
+                    near = any(math.hypot(s.gx-p.gx, s.gy-p.gy) < 2.5
+                               for s in self.structures if s.typ=="nest")
+                    if not near:
+                        col = p.g.tribe_color()
+                        self.structures.append(
+                            Structure(p.gx + random.uniform(-0.5,0.5),
+                                      p.gy + random.uniform(-0.5,0.5),
+                                      "nest", col, p.id))
+                        p._build_cd = 60*60*3  # 3 Min Pause
+                        self._log(f"Tag {self.day}: #{p.id} baut ein Nest")
+
+        # Mauern an Territorium-Grenzen (seltener)
+        if self.t % 3600 == 0 and self.tribes.tribes:
+            for tid, info in list(self.tribes.tribes.items())[:2]:
+                cx, cy = info["center"]
+                col    = info["color"]
+                for _ in range(2):
+                    wx = cx + random.uniform(-4, 4)
+                    wy = cy + random.uniform(-4, 4)
+                    if not any(math.hypot(s.gx-wx, s.gy-wy) < 1.5
+                               for s in self.structures if s.typ=="wall"):
+                        self.structures.append(
+                            Structure(wx, wy, "wall", col, -tid))
         for p in self.parotis:
             p.update(self)
         dead = [p for p in self.parotis if not p.alive]
@@ -1919,6 +2351,8 @@ class World:
              font_s: pygame.font.Font, font_m: pygame.font.Font,
              font_g: pygame.font.Font):
         surf.blit(floor, (0, 0))
+        # Territorien zuerst (unter allem)
+        self.tribes.draw(surf)
         drawables = []
         for f in self.food:
             drawables.append((f.depth_key(), "food", f))
@@ -1928,6 +2362,8 @@ class World:
             drawables.append((d.depth_key(), "deco", d))
         for d in self.dispensers:
             drawables.append((d.depth_key(), "dispenser", d))
+        for s in self.structures:
+            drawables.append((s.depth_key(), "structure", s))
         if self.shrine:
             drawables.append((self.shrine.depth_key(), "shrine", self.shrine))
         if self.mailbox:
@@ -1938,23 +2374,33 @@ class World:
             elif typ == "paroti":  obj.draw(surf, font_g, font_s)
             elif typ == "deco":       obj.draw(surf)
             elif typ == "dispenser":  obj.draw(surf, font_s)
+            elif typ == "structure":  obj.draw(surf)
             elif typ == "shrine":     obj.draw(surf, font_s)
             elif typ == "mailbox": obj.draw(surf, font_s, font_m)
         self._draw_hud(surf, font_s, font_m)
 
     def _draw_hud(self, surf: pygame.Surface,
                   font_s: pygame.font.Font, font_m: pygame.font.Font):
+        # Dominante Symbole je Bedeutung
+        lang_line = "  ".join(
+            f"{dominant_symbol(m)}={m[:3]}"
+            for m in ["hunger","danger","love","joy"]
+        )
+        n_tribes = len(self.tribes.tribes)
+        n_struct = len(self.structures)
+        music_st = "🎵" if self.music.enabled else "🔇"
         lines = [
             (font_m, f"Parotis: {len(self.parotis)}", C_HUD),
             (font_s, f"Max. Generation: {self.max_gen}", C_HUD),
             (font_s, f"Geb: {self.total_born}  Gest: {self.total_died}", C_HUD_DIM),
-            (font_s, f"Tag {self.day}", (200, 200, 140)),
+            (font_s, f"Tag {self.day}  |  {n_tribes} Stamme  |  {n_struct} Bauten", (200, 200, 140)),
+            (font_s, f"Sprache: {lang_line}", (200, 180, 255)),
         ]
         total_h = sum(f.get_height() for f, _, _ in lines) + 16
-        bg = pygame.Surface((206, total_h), pygame.SRCALPHA)
+        bg = pygame.Surface((280, total_h), pygame.SRCALPHA)
         bg.fill((0, 0, 0, 165))
         pygame.draw.rect(bg, (55, 115, 55, 100),
-            (0, 0, 206, total_h), 1, border_radius=6)
+            (0, 0, 280, total_h), 1, border_radius=6)
         surf.blit(bg, (8, 8))
         y = 14
         for f, txt, col in lines:
@@ -1994,6 +2440,12 @@ class World:
         child.parents = [a.id, b.id]
         a.children += 1
         b.children += 1
+        # Gedächtnis vererben (gemittelt + leicht abgeschwächt)
+        all_tribes = set(list(a.memory_trust.keys()) + list(b.memory_trust.keys()))
+        for tid in all_tribes:
+            ta = a.memory_trust.get(tid, 0.0)
+            tb = b.memory_trust.get(tid, 0.0)
+            child.memory_trust[tid] = (ta + tb) / 2 * 0.85  # etwas verblasst
         self.parotis.append(child)
         self.total_born += 1
         self.max_gen = max(self.max_gen, child.gen)
@@ -2050,6 +2502,7 @@ class DB:
                 children INT, parents TEXT, is_historian INT, is_runner INT);
             CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, val TEXT);
             CREATE TABLE IF NOT EXISTS chronicle(ts INT, event TEXT);
+            CREATE TABLE IF NOT EXISTS structures(gx REAL, gy REAL, typ TEXT, cr INT, cg INT, cb INT, dur REAL);
         """)
         self.conn.commit()
 
@@ -2068,6 +2521,14 @@ class DB:
         self.conn.execute("DELETE FROM meta")
         for k, v in m.items():
             self.conn.execute("INSERT INTO meta VALUES(?,?)", (k, str(v)))
+        # Strukturen speichern
+        self.conn.execute("DELETE FROM structures")
+        for s in world.structures:
+            self.conn.execute(
+                "INSERT INTO structures VALUES(?,?,?,?,?,?,?)",
+                (s.gx, s.gy, s.typ,
+                 s.color[0], s.color[1], s.color[2],
+                 s.durability))
         for ev in world.chronicle[-10:]:
             self.conn.execute(
                 "INSERT INTO chronicle VALUES(?,?)", (world.t, ev))
@@ -2120,6 +2581,13 @@ class DB:
             "SELECT event FROM chronicle ORDER BY ts DESC LIMIT 40"
         ).fetchall()
         world.chronicle = [r[0] for r in reversed(rows)]
+        # Strukturen laden
+        for row in self.conn.execute('SELECT * FROM structures'):
+            gx,gy,typ,cr,cg,cb,dur = row
+            s = Structure(gx, gy, typ, (cr,cg,cb), -1)
+            s.build_prog = 1.0
+            s.durability = dur
+            world.structures.append(s)
         return True
 
     def close(self):
@@ -2263,6 +2731,7 @@ class Game:
         elif action == "newlife":   self.world.spawn_one()
         elif action == "chronicle": self.show_chron = not self.show_chron
         elif action == "wakeall":   self.world.wakeall()
+        elif action == "music":     self.world.music.enabled = not self.world.music.enabled
         elif action == "quit":      self.menu.confirm_quit = True
 
     def _particle(self, x: int, y: int, rain: bool = False):
