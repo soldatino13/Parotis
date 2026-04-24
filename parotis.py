@@ -62,8 +62,10 @@ FPS      = 60
 SAVE_EVERY = 30
 MAX_POP  = 150
 INIT_POP = 18
-MAX_FOOD = 120
-FOOD_RATE = 0.055
+MAX_FOOD  = 35
+FOOD_RATE  = 0.012
+MAX_FISH   = 10
+MAX_APPLES = 8
 LIFESPAN = 60 * 60 * 7
 
 # Iso-Parameter (nach Screen-Init gesetzt)
@@ -463,6 +465,7 @@ class Genome:
 # ─── Zustände ─────────────────────────────────────────────────────────────────
 class S:
     WANDER   = "wander"
+    DISPENSE = "dispense"  # Zum Automaten laufen
     FOOD     = "food"
     MATE     = "mate"
     SLEEP    = "sleep"
@@ -531,7 +534,8 @@ class Paroti:
         self.vy = math.sin(a) * spd
         self.t  = random.randint(0, 100)
         self.facing_right = True
-        self._shrine_cd = 0
+        self._shrine_cd  = 0
+        self._target_disp = None
         self.bubbles: List[GlyphBubble] = []
         self.dream_t = 0
 
@@ -595,6 +599,14 @@ class Paroti:
         if self.is_runner and world.mailbox and world.mailbox.has_pending():
             self.state = S.MAILRUN
             return
+        # Hunger hoch + Automat verfügbar → zum Automaten
+        if (self.hunger > 0.55 and self.state not in (S.FOOD, S.SLEEP)
+                and world.dispensers and random.random() < 0.004):
+            avail = [d for d in world.dispensers if d.can_use()]
+            if avail:
+                self._target_disp = random.choice(avail)
+                self.state = S.DISPENSE
+                return
         if self.hunger > 0.72:
             self.state = S.FOOD
             return
@@ -699,6 +711,15 @@ class Paroti:
                         GlyphBubble(self.gx, self.gy, (200, 200, 255)))
                 if random.random() < 0.005:
                     self.state = S.WANDER
+        elif self.state == S.DISPENSE:
+            disp = getattr(self, '_target_disp', None)
+            if disp and disp in world.dispensers:
+                self._toward(disp.gx, disp.gy)
+                if self._dist(disp.gx, disp.gy) < self._sz + 1.2:
+                    disp.dispense(world, self.id)
+                    self.state = S.WANDER
+            else:
+                self.state = S.WANDER
         elif self.state == S.MAILRUN and world.mailbox:
             self._toward(world.mailbox.gx, world.mailbox.gy)
             if self._dist(world.mailbox.gx, world.mailbox.gy) < self._sz + 0.8:
@@ -931,7 +952,7 @@ class Food:
         self.typ     = random.choice(FOOD_TYPES)
         self.sz      = random.uniform(0.75, 1.15)
         self.age     = 0
-        self.max_age = random.randint(60*45, 60*90)  # 45–90 Sek Lebensdauer
+        self.max_age = random.randint(60*20, 60*40)  # 20–40 Sek Lebensdauer
 
     @property
     def expired(self): return self.age > self.max_age
@@ -1296,6 +1317,113 @@ def generate_decos(tilemap: List[List[int]]) -> List['Deco']:
                                   gy + rng.uniform(0.1,0.9),
                                   "shrub", gx*100+gy+3))
     return decos
+
+
+# ─── Futter-Automat ───────────────────────────────────────────────────────────
+class Dispenser:
+    def __init__(self, gx: float, gy: float, did: int):
+        self.gx, self.gy  = gx, gy
+        self.id           = did
+        self.t            = 0
+        self.charge       = 1.0    # 0–1, lädt sich auf
+        self.cooldown     = 0      # Frames bis nächste Ausgabe
+        self.last_used_by = 0
+        self.dispensed    = 0      # Gesamt ausgegeben
+        self.anim         = 0      # Ausgabe-Animation
+
+    def depth_key(self): return self.gx + self.gy + 0.06
+
+    def update(self):
+        self.t += 1
+        if self.cooldown > 0:
+            self.cooldown -= 1
+        else:
+            self.charge = min(1.0, self.charge + 0.0008)  # ~20 Min voll
+        if self.anim > 0:
+            self.anim -= 1
+
+    def can_use(self) -> bool:
+        return self.cooldown == 0 and self.charge >= 0.25
+
+    def dispense(self, world: 'World', pid: int, n: int = 4):
+        """Gibt Futter aus und startet Cooldown."""
+        if not self.can_use():
+            return
+        used = min(n, int(self.charge * 16))
+        for _ in range(used):
+            f = Food(self.gx + random.uniform(-2.5, 2.5),
+                     self.gy + random.uniform(-2.5, 2.5))
+            f.max_age = random.randint(60*25, 60*45)
+            world.food.append(f)
+        self.charge    = max(0.0, self.charge - used / 16)
+        self.cooldown  = 60 * 8   # 8 Sek Pause
+        self.last_used_by = pid
+        self.dispensed += used
+        self.anim      = 45
+        world._log(f"Tag {world.day}: Automat #{self.id} von #{pid} benutzt ({used} Futter)")
+
+    def draw(self, surf: pygame.Surface, font_s: pygame.font.Font):
+        sx, sy = iso(self.gx, self.gy)
+        tw, th = TILE_W // 2, TILE_H // 2
+        t      = self.t
+
+        # Iso-Würfel Basis
+        top = [(sx, sy-th),    (sx+tw//2, sy-th//2),
+               (sx, sy),       (sx-tw//2, sy-th//2)]
+        lft = [(sx-tw//2, sy-th//2), (sx, sy),
+               (sx, sy+th//2),       (sx-tw//2, sy)]
+        rgt = [(sx, sy),       (sx+tw//2, sy-th//2),
+               (sx+tw//2, sy), (sx, sy+th//2)]
+        pygame.draw.polygon(surf, (60, 60, 80),  top)
+        pygame.draw.polygon(surf, (35, 35, 55),  lft)
+        pygame.draw.polygon(surf, (50, 50, 70),  rgt)
+
+        # Automat-Körper
+        bw, bh = 20, 36
+        bx, by = sx - bw//2, sy - th - bh
+        pygame.draw.rect(surf, (50, 55, 80),  (bx, by, bw, bh), border_radius=3)
+        pygame.draw.rect(surf, (70, 80, 110), (bx, by, bw, bh), 2, border_radius=3)
+
+        # Display
+        disp_col = (0, 200, 100) if self.can_use() else (180, 60, 40)
+        pygame.draw.rect(surf, disp_col, (bx+3, by+3, bw-6, 10), border_radius=2)
+        pygame.draw.rect(surf, (0,0,0),  (bx+3, by+3, bw-6, 10), 1, border_radius=2)
+
+        # Lade-Balken
+        bar_w = bw - 6
+        pygame.draw.rect(surf, (30,30,30),  (bx+3, by+15, bar_w, 4))
+        fill  = max(0, int(bar_w * self.charge))
+        bar_c = (80,220,80) if self.charge > 0.5 else (220,180,40) if self.charge > 0.25 else (220,60,40)
+        if fill > 0:
+            pygame.draw.rect(surf, bar_c, (bx+3, by+15, fill, 4))
+
+        # Ausgabe-Schlitz
+        pygame.draw.rect(surf, (20,20,30), (bx+4, by+22, bw-8, 5))
+
+        # Knopf
+        btn_col = (200,60,60) if not self.can_use() else (60,200,80)
+        pygame.draw.circle(surf, btn_col, (sx, by+32), 4)
+        pygame.draw.circle(surf, (255,255,255), (sx, by+32), 4, 1)
+
+        # Ausgabe-Animation
+        if self.anim > 0:
+            prog = self.anim / 45
+            for i in range(3):
+                fy = sy + int((1-prog) * 20) - i*6
+                fc = [(255,180,60),(200,80,200),(80,220,80)][i]
+                pygame.draw.circle(surf, (*fc, int(200*prog)), (sx+i*4-4, fy), 3)
+
+        # Glow wenn nutzbar
+        if self.can_use():
+            pulse = int(math.sin(t*0.1)*5)
+            gs = pygame.Surface((40,40), pygame.SRCALPHA)
+            pygame.draw.circle(gs, (80,200,120,20+pulse*2),(20,20),18)
+            surf.blit(gs, (sx-20, sy-th-18))
+
+        # Label
+        lbl = font_s.render(f"A{self.id}", True,
+            (100,220,120) if self.can_use() else (180,80,80))
+        surf.blit(lbl, (sx - lbl.get_width()//2, sy + th//2 + 2))
 
 
 # ─── Schrein ──────────────────────────────────────────────────────────────────
@@ -1665,12 +1793,18 @@ class World:
         self.max_gen   = 0
         self.total_born = 0
         self.total_died = 0
-        self.chronicle : List[str]               = []
-        self.decos     : List[Deco]              = []
+        self.chronicle  : List[str]              = []
+        self.decos      : List[Deco]             = []
+        self.dispensers : List[Dispenser]        = []
 
     def setup_shrine(self):
         self.shrine = Shrine(GRID_W * 0.72, GRID_H * 0.38, GOD_IMAGE_PATH)
         self.decos  = generate_decos(self.tilemap)
+        # Zwei Automaten an fixen Positionen
+        self.dispensers = [
+            Dispenser(GRID_W * 0.22, GRID_H * 0.30, 1),
+            Dispenser(GRID_W * 0.78, GRID_H * 0.68, 2),
+        ]
 
     def setup_mailbox(self, screen_w: int, screen_h: int):
         self.mailbox = Mailbox(
@@ -1704,35 +1838,40 @@ class World:
     def update(self):
         self.t   += 1
         self.day  = self.t // (60 * 35)
-        # Normales Futter
-        if len(self.food) < MAX_FOOD and random.random() < FOOD_RATE:
+        # Normales Boden-Futter (max MAX_FOOD gleichzeitig)
+        normal_food = [f for f in self.food
+                       if f.typ not in RIVER_FOOD_TYPES and f.typ != "apple"]
+        if len(normal_food) < MAX_FOOD and random.random() < FOOD_RATE:
             self.food.append(Food(
                 random.uniform(1.0, GRID_W - 1.0),
                 random.uniform(1.0, GRID_H - 1.0)))
 
         # Notfall-Futter wenn Population zu tief
-        if len(self.parotis) > 0 and len(self.parotis) < 8 and random.random() < 0.15:
-            for _ in range(5):
-                self.food.append(Food(
-                    random.uniform(1.0, GRID_W - 1.0),
-                    random.uniform(1.0, GRID_H - 1.0)))
+        if len(self.parotis) > 0 and len(self.parotis) < 6 and random.random() < 0.04:
+            self.food.append(Food(
+                random.uniform(1.0, GRID_W - 1.0),
+                random.uniform(1.0, GRID_H - 1.0)))
 
-        # Fisch im Bach spawnen (langsamer)
-        if RIVER_TILES and random.random() < 0.003:
+        # Fisch im Bach — genau MAX_FISH halten
+        fish_count = sum(1 for f in self.food if f.typ in RIVER_FOOD_TYPES)
+        if RIVER_TILES and fish_count < MAX_FISH and random.random() < 0.018:
             rx, ry = random.choice(RIVER_TILES)
             fish = Food(rx + random.uniform(0.1, 0.9), ry + random.uniform(0.1, 0.9))
             fish.typ = random.choice(RIVER_FOOD_TYPES)
-            fish.col = FOOD_GLOW.get(fish.typ, (255, 200, 80))
+            fish.max_age = random.randint(60*30, 60*60)
             self.food.append(fish)
 
-        # Apfelbäume droppen Äpfel (alle 8 Sek ca.)
-        if self.t % 1200 == 0:
-            for d in self.decos:
-                if d.typ == "tree_big" and random.random() < 0.15:
-                    drop = Food(d.gx + random.uniform(-1.5, 1.5),
-                                d.gy + random.uniform(-1.5, 1.5))
-                    drop.typ = "apple"
-                    self.food.append(drop)
+        # Äpfel von Bäumen — max MAX_APPLES, alle 30 Sek ein neuer
+        apple_count = sum(1 for f in self.food if f.typ == "apple")
+        if apple_count < MAX_APPLES and self.t % 1800 == 0:
+            candidates = [d for d in self.decos if d.typ == "tree_big"]
+            if candidates:
+                d = random.choice(candidates)
+                drop = Food(d.gx + random.uniform(-1.2, 1.2),
+                            d.gy + random.uniform(-1.2, 1.2))
+                drop.typ = "apple"
+                drop.max_age = random.randint(60*25, 60*50)
+                self.food.append(drop)
         for f in self.food:
             f.update()
         self.food = [f for f in self.food if not f.expired]
@@ -1740,6 +1879,8 @@ class World:
             self.shrine.update()
         if self.mailbox:
             self.mailbox.update()
+        for d in self.dispensers:
+            d.update()
         for p in self.parotis:
             p.update(self)
         dead = [p for p in self.parotis if not p.alive]
@@ -1785,6 +1926,8 @@ class World:
             drawables.append((p.depth_key(), "paroti", p))
         for d in self.decos:
             drawables.append((d.depth_key(), "deco", d))
+        for d in self.dispensers:
+            drawables.append((d.depth_key(), "dispenser", d))
         if self.shrine:
             drawables.append((self.shrine.depth_key(), "shrine", self.shrine))
         if self.mailbox:
@@ -1793,8 +1936,9 @@ class World:
         for _, typ, obj in drawables:
             if   typ == "food":    obj.draw(surf)
             elif typ == "paroti":  obj.draw(surf, font_g, font_s)
-            elif typ == "deco":    obj.draw(surf)
-            elif typ == "shrine":  obj.draw(surf, font_s)
+            elif typ == "deco":       obj.draw(surf)
+            elif typ == "dispenser":  obj.draw(surf, font_s)
+            elif typ == "shrine":     obj.draw(surf, font_s)
             elif typ == "mailbox": obj.draw(surf, font_s, font_m)
         self._draw_hud(surf, font_s, font_m)
 
@@ -2090,12 +2234,23 @@ class Game:
             return
         self._particle(x, y)
         gx, gy = screen_to_grid(x, y)
+        # Automat antippen → Spieler füllt nach
+        disp = self._hit_dispenser(gx, gy)
+        if disp:
+            disp.dispense(self.world, 0, n=6)  # 0=Gott
+            return
         petted = self.world.pet_at(gx, gy)
         if petted:
             self.selected = petted
         else:
             self.world.add_food(gx, gy)
             self.selected = None
+
+    def _hit_dispenser(self, gx: float, gy: float) -> Optional['Dispenser']:
+        for d in self.world.dispensers:
+            if math.hypot(d.gx - gx, d.gy - gy) < 1.8:
+                return d
+        return None
 
     def _long_press(self, x: int, y: int):
         self.world.rain()
