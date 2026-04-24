@@ -115,7 +115,7 @@ MEANINGS    = ["hunger", "danger", "love", "joy", "warning", "sleep"]
 
 # Globales Wörterbuch: erfasst welche Symbole wie oft für welche Bedeutung
 # gesendet wurden → emergente Konvergenz
-_lang_registry: Dict[str, Dict[str, int]] = {m: {} for m in MEANINGS}
+_lang_registry: dict = {m: {} for m in MEANINGS}
 
 def record_symbol(symbol: str, meaning: str):
     if meaning in _lang_registry:

@@ -1,9 +1,10 @@
-# 🌍 PAROTIS v3 — Die isometrische Welt
+# 🌍 PAROTIS v4 — Sprache, Stämme & Strukturen
 
 > *"Was hast du erschaffen?"*
 > Inspiriert von Black Mirror S07E04 – Plaything (2025)
 
-Eine isometrische Lebenssimulation im **Habbo-Hotel-Stil** für Raspberry Pi mit Touchscreen.  
+Eine isometrische Lebenssimulation im **Habbo-Hotel-Stil** für Raspberry Pi mit Touchscreen.
+Parotis bilden Stämme, entwickeln eine eigene Sprache, bauen Strukturen und erzeugen generative Musik.  
 Jedes Wesen — ein **Paroti** — hat ein einzigartiges Genom, das Aussehen, Verhalten,  
 Persönlichkeit und Nachkommen bestimmt. Du bist der Gott dieser kleinen Welt.
 
@@ -203,6 +204,7 @@ Jeder Befehl steht auf einer eigenen Zeile. Zeilen mit `#` werden ignoriert.
 | `TIPP Tippe auf...` | Tipp-Hinweis anzeigen |
 | `HILFE Text hier` | Hilfe-Text anzeigen |
 | `BESTRAFT` | Gott ist zornig — 3 zufällige Parotis werden hungrig |
+| `FEST` | Grosses Fest — Automaten befüllt, alle glücklich |
 
 ### Beispiel-Datei
 
@@ -245,6 +247,7 @@ Grüner Kreis **unten links** → antippen zum Öffnen:
 | 👶 Neues Leben | Einen neuen Paroti erschaffen |
 | 📜 Chronik | Weltgeschichte ein-/ausblenden |
 | ⚡ Alle wecken | Alle Schlafenden aufwecken |
+| 🎵 Musik | Generative Musik ein/ausschalten |
 | 🔌 Ausschalten | Welt speichern und beenden (Bestätigung) |
 
 Das Menü ist für zukünftige Features erweiterbar (Fussball-Liga, etc.).
@@ -286,6 +289,8 @@ Sichtbare Accessoires je nach Gen-Wert:
 | `courage` | Mutig vs. ängstlich |
 | `repro` | Fortpflanzungsdrang |
 | `piety` | Frömmigkeit / Reaktion auf den Gott-Schrein |
+| `tribe_r/g/b` | Stammes-Farbton — bestimmt Stammes-Zugehörigkeit |
+| `sym_hunger/danger/love/joy` | Persönliche Symbole für jede Bedeutung (Index in Symbol-Pool) |
 | `mut_rate` | Wie stark Kinder vom Elternteil abweichen |
 
 ### Abgeleitete Eigenschaften
@@ -310,6 +315,7 @@ Sichtbare Accessoires je nach Gen-Wert:
 | **flieht (Gott!)** | Ängstliche fliehen vor dem Schrein |
 | **neugierig** | Inspiziert den Schrein, blaue Blasen |
 | **holt Post** | Postfach-Läufer — holt neue Befehle ab |
+| **zum Automaten** | Hunger hoch → läuft zum Futter-Automaten |
 
 ---
 
@@ -433,12 +439,17 @@ sudo apt-get install unclutter
 - [x] SQLite-Persistenz (überlebt Neustarts)
 - [x] Weltchronik
 
-### 🔜 v4 – Sprache & Territorium
-- [ ] Emergente Sprache: konsistente Symbole für "Hunger", "Gefahr", "Liebe"
-- [ ] Territorien: Linien markieren Bereiche
-- [ ] Kollektives Gedächtnis: Misstrauen/Vertrauen wird vererbt
-- [ ] Primitive Strukturen: Nester, Mauern (Pixel-Konstruktionen)
-- [ ] Generative Musik: Töne aus Gen-Werten
+### ✅ v4 (aktuell) — Sprache, Stämme & Strukturen
+- [x] **Emergente Sprache** — Parotis senden Symbole (◆★✦…) je nach Zustand (Hunger/Liebe/Gefahr/Freude), genetisch vererbt, konvergiert über Generationen. HUD zeigt dominante Symbole live.
+- [x] **Stämme** — Parotis mit ähnlichen `tribe_r/g/b`-Genen bilden Stämme, Stammes-Farbe stark vererbt
+- [x] **Territorien** — transparente Iso-Ellipsen mit Grenz-Dreiecken, alle 10 Sek neu berechnet
+- [x] **Kollektives Gedächtnis** — `memory_trust` Dict (Stamm → Vertrauen), zu 85% an Kinder vererbt
+- [x] **Nester** — Parotis mit hoher Energie bauen Zweig-Nester (isometrisch gezeichnet, verwittern)
+- [x] **Mauern** — Stämme bauen Steinmauern an Territorium-Grenzen (iso, persistiert)
+- [x] **Strukturen persistiert** — Nester + Mauern überleben Neustart (SQLite)
+- [x] **Generative Musik** — BPM aus Speed, Tonhöhe aus Intellekt, Dur/Moll aus Stimmung, Lautstärke aus Populations-Grösse. Ein/ausschaltbar im Menü (🎵)
+- [x] **Futter-Automaten** — 2 Automaten auf der Map, Parotis und Spieler können Futter holen
+- [x] **Musik-Button** im Touch-Menü
 
 ### 🏟️ v4 – Fussball-Liga
 Geplant sobald Populationen gross genug und territorial sind:
@@ -448,7 +459,7 @@ Geplant sobald Populationen gross genug und territorial sind:
 - Saisonrangliste persistent in SQLite
 - Stadion wächst mit Club-Grösse
 
-### 🌑 v5 – Die vierte Wand
+### 🔜 v5 – Die vierte Wand
 - Parotis bemerken deinen Finger / deine Präsenz
 - Systemnachricht nach vielen Generationen
 - Historiker-Chronik als lesbare Weltgeschichte
@@ -464,6 +475,7 @@ Geplant sobald Populationen gross genug und territorial sind:
 ├── start.sh            ← Empfohlener Start (Cursor versteckt, etc.)
 ├── Parotis.desktop     ← Desktop-Icon
 ├── icon.png            ← Programm-Icon (automatisch generiert)
+├── generate_sprites.py ← Sprite-Generator (OpenAI API)
 └── README.md           ← Diese Datei
 
 ~/parotis-inbox/        ← Postfach (Befehle per txt-Datei)
